@@ -1,0 +1,45 @@
+﻿<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexta | Simulação de estoques</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+
+
+<script type="module" src="online.js"></script></head><body class="auth-pending">
+<section id="login-screen" aria-labelledby="login-title">
+<form id="login-form" class="login-box">
+<div class="brand">N<span>EXTA</span></div>
+<h1 id="login-title">Simulador de estoque</h1>
+<label>E-mail<input id="login-email" type="email" autocomplete="username" required></label>
+<label>Senha<input id="login-password" type="password" autocomplete="current-password" required minlength="6"></label>
+<label class="check"><input id="login-show" type="checkbox">Mostrar senha</label>
+<button id="login-submit" type="submit" class="primary" disabled>Entrar</button>
+<button id="login-reset" type="button" disabled>Esqueci minha senha</button>
+<p id="login-status" role="status" aria-live="polite">Conectando...</p>
+<button id="login-verify" type="button" hidden>Reenviar verificação de e-mail</button>
+<button id="login-recheck" type="button" hidden>Já verifiquei meu e-mail</button>
+<button id="login-switch" type="button" hidden>Usar outra conta</button>
+</form>
+</section>
+<div id="account-bar" hidden><span id="account-email"></span><button id="logout" type="button">Sair</button></div>
+<header><div class="brand">N<span>EXTA</span></div><div class="divider"></div><div><strong>LOGÍSTICA</strong><small>Gestão de abastecimento das bases</small></div><span class="badge">SIMULAÇÃO DE ESTOQUES</span></header>
+<main>
+<div class="title"><div><h1>Simulação de estoques</h1><p>Escolha a base e o produto. Edite os volumes para testar as próximas duas semanas.</p></div><div class="actions"><button id="reset">Restaurar dados da fonte</button><button id="export">Exportar CSV</button><button id="save" class="primary">Salvar cenário JSON</button><label class="button" for="import">Abrir cenário</label><input type="file" id="import" accept="application/json,.json" hidden></div></div>
+<section class="filters panel"><label>Base / depósito<select id="base"></select></label><label>Produto<select id="product"></select></label><label>Data da abertura<input id="date" type="date" readonly></label><label>Período<input value="−7 dias / +14 dias" readonly></label><label>Fonte do trânsito<select id="scenario"><option>LE</option><option>Real</option><option>Disp MIS</option><option>Inbound + MIS</option></select></label><label>Nome do cenário<input id="name" maxlength="80" value="Minha simulação"></label><div class="product-options"><span class="eyebrow">PRODUTO</span><div class="chips" id="product-chips"></div></div><details class="base-options"><summary>Selecionar base pelos botões</summary><div class="chips" id="base-chips"></div></details></section><div class="import-banner" id="bi-loaded"></div><div class="notice" id="auto-status" role="status">Verificando atualização automática…</div><p class="muted" id="scenario-note"></p>
+<section class="panel editor-panel"><div class="section-title"><div><h2>Editar volumes do dia</h2><p>Os volumes já vêm do BI em m³. Clique em um valor para simular uma alteração, por exemplo, <strong>125,5</strong>.</p></div><span class="badge" id="saved" role="status">CENÁRIO LOCAL</span></div><div class="day-tabs" id="edit-days"></div><div id="daily-editor"></div><div class="edit-footer"><strong id="day-summary" aria-live="polite"></strong><button id="repeat-day">Repetir movimentos nos próximos dias</button></div><div id="stock-gauge"></div><p class="muted">Vendas futuras = VMD reprojetada. FOB/CIF e programação vêm das medidas do BI, na data de descarga. Os campos adicionais são ajustes opcionais.</p></section>
+<section class="panel assumptions"><div><h2>Política de estoque · carregada da planilha</h2><p id="policy-source">Premissas Politica Estoques.xlsx → Politica Vigente. Alterações abaixo valem somente para esta simulação.</p></div><div class="premises" id="premises"></div><input id="clamp" type="checkbox" hidden><p>Abertura seguinte = abertura anterior + entradas − saídas. O saldo negativo também é transportado.</p></section>
+<section class="panel"><div class="section-title"><div><h2>Duas semanas de simulação · edição direta</h2><p>Tabela preenchida com as medidas do BI em m³. Edite para simular; as aberturas seguintes e os totais são recalculados.</p></div></div><div class="table-scroll"><table id="grid"></table></div></section>
+<section class="cards" id="cards"></section><details class="panel"><summary>Conferir as medidas originais do BI para o dia selecionado</summary><p>Valores consultados sem edição. O trânsito da simulação usa o CSV Inbound mais recente; pode diferir do modelo ainda não atualizado. A abertura física da simulação vem da última planilha preenchida e continua pelo fechamento anterior.</p><div class="table-scroll"><table id="bi-measures"></table></div></details>
+<section class="panel"><div class="section-title"><div><h2>Histórico e projeção</h2><p>7 dias anteriores + abertura de referência + 14 dias futuros.</p></div><div class="legend"><span style="--c:#14b8a6">Abertura</span><span style="--c:#EEFE7A">Fechamento</span><span style="--c:#7FA069">Cenário original</span><span style="--c:#FF6B5F">Mínimo</span><span style="--c:#38BDF8">Capacidade</span></div></div><div id="chart" class="chart"></div></section>
+<section class="panel"><h2>Semana anterior · histórico da fonte</h2><p>Aberturas reais, somente leitura. “—” significa informação ainda não integrada.</p><div class="table-scroll"><table id="history-grid"></table></div></section>
+<section class="panel"><h2>Pontos de atenção</h2><div id="alerts" aria-live="polite"></div></section>
+<details class="panel"><summary>Fontes e opções conferidas no BI</summary><div id="source" class="notice"></div><p id="provenance"></p><p id="policy-provenance"></p><p>A página “Dash Estoque &amp; Abastec.” foi conferida no PBIP. Ela usa Lastro Mínimo, Abertura − Lastro, Recebimentos Real, Prog_Bombeio, Prog_Rodoviário, Prog_Transferências e Trânsito FOB/CIF. Aqui, transferências são separadas entre entrada e saída, e as vendas futuras usam a VMD reprojetada diária em m³. O histórico de vendas representa o faturamento realizado retornado pelo modelo.</p><p>O BI também filtra empresa, cidade, depósito, regional, modal, produto, mês, semana e cenários Real / LE / Disp MIS / Inbound + MIS. A extração desta versão usa o contexto LE para obter VMD reprojetada e as medidas de recebimento por terminal, material e data.</p><p>Fechamento = abertura + entradas − vendas projetadas − demais saídas. Lastro é descontado apenas na visualização de estoque disponível. Os alertas avaliam abertura e fechamento, sem sequência intradiária.</p><p>A abertura vem da planilha diária, convertida de litros para m³. Para as entradas futuras, são usadas as medidas Programação, Programação_Rodo, Transito_FOB e Transito_CIF. Os recebimentos da planilha diária não são somados novamente a essas medidas. Uma medida em branco é considerada zero na simulação e identificada na dica do campo; não é uma confirmação operacional de ausência de movimento.</p><p>Com o relatório aberto no Power BI, execute <code>testes/simulador_estoque/atualizar_tudo.ps1</code> e reabra a página. A extração é somente leitura e não atualiza os dataflows. Cada versão das fontes tem seu próprio cenário local; os cenários anteriores não são apagados. As cores seguem SimulacaoEstoque.py: ≤ mínimo vermelho escuro; ≤ médio laranja; ≤ máximo verde claro; acima do máximo verde. Excesso de capacidade gera um alerta separado.</p></details>
+<p id="message" role="status"></p>
+</main>
+<aside id="sales-popover" role="tooltip" hidden></aside>
+
+</body></html>
+
+
+
