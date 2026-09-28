@@ -66,7 +66,7 @@
   closePopup();anchor=input;
   const index=input.dataset.day===undefined?editDay:Number(input.dataset.day);
   const loaded=record.bi?.days[day(index)],scenarios=loaded?.scenarios||{};
-  const values=[['VMD',loaded?.vmd],['LE',scenarios.LE?.plannedSales],['Pedidos em tela',loaded?.ordersOnScreen]];
+  const values=[['VMD',loaded?.vmd],['LE',scenarios.LE?.plannedSales],['Pedidos em aberto',loaded?.ordersOnScreen]];
   popup.innerHTML=`<strong>Vendas · ${dateLabel(day(index))}</strong><dl>${values.map(([name,value])=>`<div><dt>${name}</dt><dd>${value==null?'Sem dado':fmt(value)+' m³'}</dd></div>`).join('')}</dl><p>${day(index)<today()?'Anterior à simulação':`Cenário: <strong>${esc(state.scenario)}</strong>`}</p><p>Aplicado: <strong>${fmt(state.movements.sale[index])} m³</strong>${state.movements.sale[index]!==baseline.movements.sale[index]?' · editado':''}</p>${state.scenario==='Real'&&day(index)>D.bi.extractedAt.slice(0,10)?'<p>Valor aplicado com projeção futura.</p>':''}`;
   input.setAttribute('aria-describedby','sales-popover');
   popup.hidden=false;

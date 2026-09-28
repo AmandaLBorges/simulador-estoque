@@ -120,5 +120,11 @@ onAuthStateChanged(auth, async user => {
     el('account-bar').hidden = false;
     el('account-email').textContent = `${profile.nome || user.email} · ${profile.perfil}`;
     el('auto-status').textContent = `Fontes de ${data.date}. Recarregue a página para buscar uma nova carga.`;
+    const sync = el('sync-status');
+    if (sync && data.bi?.extractedAt) {
+      const quando = new Date(data.bi.extractedAt);
+      sync.textContent = 'Sincronizado ' + quando.toLocaleString('pt-BR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'});
+      sync.title = 'Dados das fontes lidos em ' + quando.toLocaleString('pt-BR');
+    }
   } catch (error) { status(errorText(error)); el('login-switch').hidden = false; }
 });
