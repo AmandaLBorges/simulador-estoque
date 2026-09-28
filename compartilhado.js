@@ -7,12 +7,13 @@
   bar.innerHTML = '<label>Cenários da equipe <select id="cloud-list"><option value="">Selecione um cenário</option></select></label><button id="cloud-refresh">Atualizar lista</button><button id="cloud-open">Abrir cenário</button><button id="cloud-save">Salvar na equipe</button><button id="cloud-copy">Salvar como novo</button><small id="cloud-status" role="status"></small>';
   document.querySelector('.filters').after(bar);
   const note = text => { $('cloud-status').textContent = text; };
-  const identity = () => [record.id, D.date, state.scenario].join('|');
+  // Sem record (filtro de regiao pode zerar a lista de bases), usa uma chave estavel em vez de quebrar.
+  const identity = () => record ? [record.id, D.date, state.scenario].join('|') : 'sem-registro';
   const previousKey = key;
   key = () => `${window.SIM_AUTH.uid}:${previousKey()}`;
   // Não reutilizar rascunhos deixados por outra conta no mesmo navegador.
   select();
-  const editable = () => cloud.canEdit(record.base);
+  const editable = () => Boolean(record) && cloud.canEdit(record.base);
   function lock() {
     const allowed = editable();
     document.querySelectorAll('[data-row], [data-param], [data-edit-key], #name').forEach(input => {
