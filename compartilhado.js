@@ -88,7 +88,8 @@
   // Depois de salvar na equipe, tambem registra uma versao na visao do dia (imutavel — ver online.js).
   // Falha aqui nao desfaz o salvamento acima, que ja esta commitado; so avisa.
   async function saveDaily(base, content) {
-    const dia = D.date, chave = cloud.dailyKey(record.id, content.scenario);
+    const deposito = record.bi.emp_dep;
+    const dia = D.date, chave = cloud.dailyKey(deposito, record.product, content.scenario);
     const existentes = Object.values(await cloud.listDailyVersions(dia, base, chave));
     let motivo = '';
     if (existentes.length) {
@@ -100,7 +101,7 @@
       motivo = (prompt('Motivo da nova versão (obrigatório):', '') || '').trim();
       if (!motivo) throw new Error('Informe o motivo para salvar uma nova versão na visão do dia.');
     }
-    await cloud.saveDailyVersion(dia, base, chave, {base, produto: record.product, cenario: content.scenario,
+    await cloud.saveDailyVersion(dia, base, chave, {base, deposito, produto: record.product, cenario: content.scenario,
       nome: content.name, motivo, conteudo: JSON.stringify(content), fonteRevisao: D.revision,
       indicadores: indicators(content)});
     document.dispatchEvent(new CustomEvent('visao-dia:atualizar', {detail: {dia}}));

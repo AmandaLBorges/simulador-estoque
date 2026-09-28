@@ -95,7 +95,10 @@ onAuthStateChanged(auth, async user => {
         return result.snapshot.val();
       },
       regionOf(base) { return regions.val()?.[hex(base)]; },
-      dailyKey(recordId, cenario) { return hex(`${recordId}|${cenario}`); },
+      // Chave estavel (destino ja e' o nivel acima no caminho) — nao usa o id da linha da planilha de
+      // abertura porque a ordem das linhas pode mudar de um dia pro outro, quebrando a comparacao entre
+      // dias na visao consolidada.
+      dailyKey(deposito, produto, cenario) { return hex(`${deposito}|${produto}|${cenario}`); },
       async listDailyVersions(dia, base, chave) {
         return (await get(ref(db, `cenariosDia/${dia}/${hex(base)}/${chave}/versoes`))).val() || {};
       },
@@ -113,6 +116,11 @@ onAuthStateChanged(auth, async user => {
         return {...registro, numero};
       },
       async listDay(dia) { return (await get(ref(db, `cenariosDia/${dia}`))).val() || {}; },
+      // Varias datas em paralelo (visao semanal) — cada dia falho vira {} em vez de derrubar a semana toda.
+      async listRange(dias) {
+        const arvores = await Promise.all(dias.map(dia => get(ref(db, `cenariosDia/${dia}`)).then(s => s.val() || {}).catch(() => ({}))));
+        return Object.fromEntries(dias.map((dia, i) => [dia, arvores[i]]));
+      },
     };
     for (const name of ['motor.js', 'app.js', 'editor.js', 'automatico.js', 'cenarios.js', 'compartilhado.js', 'dia.js']) await script(name);
     started = true;

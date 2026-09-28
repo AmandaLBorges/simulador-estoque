@@ -44,7 +44,10 @@ function select(){record=D.records.find(r=>r.base===$('base').value&&r.product==
 // Politica de estoque (abertura/lastro/minimo/medio/maximo/capacidade): fixa, vem da planilha e nao
 // e' editavel pela simulacao (pedido da usuaria, 2026-09-28) — so os movimentos (entradas/saidas)
 // continuam editaveis, na tabela e no editor por dia.
-function premises(){$('name').value=state.name;$('clamp').checked=state.clamp;$('premises').innerHTML=parameters.map(([k,l])=>`<label>${l}<input type="number" readonly data-param="${k}" aria-label="${l}" value="${state[k]===null?'':Math.round(state[k])}" placeholder="Ausente na fonte" title="Valor fixo, carregado da planilha de política."><small>${k==='opening'?'Abertura importada':`Política: ${fmt(baseline[k])} m³`}</small></label>`).join('');}
+// record.aberturaEm: dia de onde veio a abertura dessa base+produto (pode ser mais antigo que D.date —
+// ver JANELA_FALLBACK_ABERTURA_DIAS em atualizar_dados.py). Avisa na tela quando nao e' de hoje.
+function aberturaAtrasada(){return record.aberturaEm && record.aberturaEm!==D.date;}
+function premises(){$('name').value=state.name;$('clamp').checked=state.clamp;$('premises').innerHTML=parameters.map(([k,l])=>`<label>${l}<input type="number" readonly data-param="${k}" aria-label="${l}" value="${state[k]===null?'':Math.round(state[k])}" placeholder="Ausente na fonte" title="Valor fixo, carregado da planilha de política."><small>${k==='opening'?(aberturaAtrasada()?`⚠ Abertura de ${new Date(record.aberturaEm+'T12:00:00').toLocaleDateString('pt-BR')} (não é de hoje)`:'Abertura importada'):`Política: ${fmt(baseline[k])} m³`}</small></label>`).join('');}
 function history(i){return D.history?.[day(i)]?.[record.base+'|'+record.product];}
 function status(v){return E.stockBand(v,state);}
 function render(rebuild=false){const result=E.calculate(state,n),original=E.calculate(baseline,n);

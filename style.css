@@ -53,3 +53,22 @@ td.danger{background:#8B0000!important;color:white!important;box-shadow:inset 0 
 #dia-tbody td{text-align:left;white-space:normal}#dia-tbody small{color:var(--muted)}
 #account-bar{gap:16px}#ver-dia{margin-right:auto}
 @media(max-width:1000px){#dia-view{margin:16px}}
+/* Abas do painel (Riscos da semana / Por data) e a visao semanal em cards. */
+#dia-view .dia-tabs{display:flex;gap:8px;margin-bottom:16px}
+#dia-view .dia-tabs button[aria-selected="true"]{border-color:#EEFE7A;background:#8dc8302b;color:#EEFE7A}
+.semana-nav{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.semana-pills{display:flex;gap:6px;flex-wrap:wrap}
+.semana-pills button{min-width:52px;padding:8px 10px}
+.semana-pills button.active{border-color:#EEFE7A;background:#8dc8302b;color:#EEFE7A}
+.semana-pills button.hoje{box-shadow:inset 0 0 0 1px var(--accent)}
+.semana-barra{display:flex;height:26px;border-radius:5px;overflow:hidden;margin-bottom:16px;border:1px solid var(--border)}
+.semana-barra span{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#111A0A;min-width:26px}
+.semana-barra .critico{background:var(--danger)}.semana-barra .atencao{background:var(--orange)}.semana-barra .ok{background:var(--accent)}
+.semana-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.semana-lista .card{border-left-width:4px;padding:14px 16px;margin:0}
+.semana-lista .card.dia-critico{border-left-color:var(--danger)}
+.semana-lista .card.dia-atencao{border-left-color:var(--orange)}
+.semana-lista .card.dia-ok{border-left-color:var(--accent)}
+.semana-lista .card h3{margin:0 0 2px;font-size:14px}
+.semana-lista .card p{margin:8px 0;color:var(--text)}
+.semana-lista .card small{display:block;color:var(--muted)}
