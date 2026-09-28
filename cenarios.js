@@ -1,6 +1,6 @@
 'use strict';
 (() => {
- const modes=['Disp MIS','Inbound + MIS','LE','Real'];
+ const modes=['Disp MIS','LE','Real'];
  const today=simulationToday;
  const dateLabel=value=>new Date(value+'T12:00:00').toLocaleDateString('pt-BR');
  const popup=$('sales-popover');
@@ -39,15 +39,17 @@
  }
 
  function closePopup(){if(anchor)anchor.removeAttribute('aria-describedby');anchor=null;popup.hidden=true;}
- function lockPast(){
-  document.querySelectorAll('[data-row]').forEach(input=>{input.readOnly=day(Number(input.dataset.day))<today();});
-  document.querySelectorAll('[data-edit-key]').forEach(input=>{input.readOnly=day(editDay)<today();});
+ // Ate 2026-09-28 esta funcao travava (readOnly) qualquer dia anterior a hoje, mesmo dentro da janela
+ // carregada (abertura + 14 dias). Por pedido da usuaria, qualquer dia da janela agora e' editavel —
+ // corrigir um recebimento de um dia passado precisa refletir no fechamento dos dias seguintes. A
+ // tabela "Semana anterior · historico da fonte" continua so-leitura (nao tem campo de edicao; e' outro
+ // modelo de dado, fora de state.movements).
+ function limparDicaVenda(){
   document.querySelectorAll('[data-row="sale"], [data-edit-key="sale"]').forEach(input=>{input.removeAttribute('title');input.closest('label')?.removeAttribute('title');});
-  $('repeat-day').disabled=day(editDay)<today();
  }
  const previousRender=render,previousEditor=renderEditor;
- render=function(rebuild=false){closePopup();previousRender(rebuild);lockPast();syncButtons();};
- renderEditor=function(){previousEditor();lockPast();};
+ render=function(rebuild=false){closePopup();previousRender(rebuild);limparDicaVenda();syncButtons();};
+ renderEditor=function(){previousEditor();limparDicaVenda();};
  function choose(mode){
   if(!modes.includes(mode)||mode===state.scenario)return;
   if(today()>day(n-1)){message('Sem datas disponíveis de hoje em diante. Atualize as fontes para iniciar a simulação.');return;}

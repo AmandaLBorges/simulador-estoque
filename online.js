@@ -1,7 +1,7 @@
 import { firebaseAuth as auth, firebaseDatabase as db } from './firebase.js';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, setPersistence,
   browserSessionPersistence, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
-import { ref, get, runTransaction, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
+import { ref, get, set, runTransaction, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 
 const el = id => document.getElementById(id);
 let started = false;
@@ -94,8 +94,27 @@ onAuthStateChanged(auth, async user => {
         if (!result.committed) throw new Error('Este cenário foi alterado por outra pessoa. Abra a versão atual antes de salvar.');
         return result.snapshot.val();
       },
+      regionOf(base) { return regions.val()?.[hex(base)]; },
+      dailyKey(recordId, cenario) { return hex(`${recordId}|${cenario}`); },
+      async listDailyVersions(dia, base, chave) {
+        return (await get(ref(db, `cenariosDia/${dia}/${hex(base)}/${chave}/versoes`))).val() || {};
+      },
+      // Numero da versao vem de um contador com runTransaction (mesmo padrao de contadoresViagem no
+      // portal inbound), pra duas pessoas salvando ao mesmo tempo nunca ganharem o mesmo numero. Depois
+      // do numero definido, grava o registro em versoes/<numero>; as regras recusam sobrescrever esse
+      // caminho (create-only), entao a visao do dia nunca muda depois de salva.
+      async saveDailyVersion(dia, base, chave, payload) {
+        const contadorRef = ref(db, `cenariosDia/${dia}/${hex(base)}/${chave}/contador`);
+        const resultado = await runTransaction(contadorRef, atual => (atual || 0) + 1);
+        const numero = resultado.snapshot.val();
+        const registro = {...payload, versao: numero, autor: user.uid, autorNome: profile.nome || user.email,
+          atualizadoEm: serverTimestamp()};
+        await set(ref(db, `cenariosDia/${dia}/${hex(base)}/${chave}/versoes/${numero}`), registro);
+        return {...registro, numero};
+      },
+      async listDay(dia) { return (await get(ref(db, `cenariosDia/${dia}`))).val() || {}; },
     };
-    for (const name of ['motor.js', 'app.js', 'editor.js', 'automatico.js', 'cenarios.js', 'compartilhado.js']) await script(name);
+    for (const name of ['motor.js', 'app.js', 'editor.js', 'automatico.js', 'cenarios.js', 'compartilhado.js', 'dia.js']) await script(name);
     started = true;
     document.body.classList.remove('auth-pending'); el('login-screen').hidden = true;
     el('account-bar').hidden = false;

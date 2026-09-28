@@ -1,6 +1,6 @@
 'use strict';
 $('scenario').onchange=()=>{select();describeScenario();};
-function describeScenario(){$('scenario-note').textContent=$('scenario').value==='Inbound + MIS'?`A partir de ${D.bi.inbound.switchDate}, FOB = MIS (FOB + DAP) e CIF = MIS (CIF). Bombeio e programação rodoviária permanecem visíveis como componentes do trânsito MIS; entram uma vez no total. Editar esses componentes ajusta o FOB para refletir a variação. Antes dessa data, usa o CSV Inbound.`:'Trânsito do CSV Inbound: FOB em andamento/finalizado e CIF, por data de descarga calculada conforme o BI.';}
+function describeScenario(){$('scenario-note').textContent=$('scenario').value==='Inbound + MIS'?`A partir de ${D.bi.inbound.switchDate}, FOB = MIS (FOB + DAP) e CIF = MIS (CIF). Bombeio e programação rodoviária permanecem visíveis como componentes do trânsito MIS; entram uma vez no total. Editar esses componentes ajusta o FOB para refletir a variação. Antes dessa data, usa o CSV Inbound.`:'Trânsito do CSV Inbound: FOB em andamento/finalizado e CIF, por data de descarga do portal.';}
 describeScenario();
 async function updateSources(){
  if(window.SIM_CLOUD)return;

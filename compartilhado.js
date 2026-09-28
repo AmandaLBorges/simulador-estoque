@@ -67,6 +67,44 @@
     state = candidate; currentId = id; expected = entry;
     persist(); premises(); render(true); note('Cenário da equipe aberto.');
   });
+  // Indicadores da visao do dia: calculados sobre os proximos 14 dias (mesma janela da simulacao).
+  // Critico = fechamento negativo ou abaixo do lastro; atencao = no minimo ou abaixo, sem ser critico.
+  function indicators(content) {
+    const result = E.calculate(content, n);
+    let low = Infinity, lowDay = null, critico = 0, atencao = 0, ruptura = null;
+    result.forEach((r, i) => {
+      if (r.close < low) { low = r.close; lowDay = day(i); }
+      const isCritico = r.close < 0 || (content.lastro !== null && r.close < content.lastro);
+      const isAtencao = !isCritico && content.min !== null && r.close <= content.min;
+      if (isCritico) critico++; else if (isAtencao) atencao++;
+      if (r.close < 0 && ruptura === null) ruptura = day(i);
+    });
+    const out = {menorEstoque: Math.round(low * 100) / 100, diaMenorEstoque: lowDay, diasAtencao: atencao,
+      diasCritico: critico, situacao: critico > 0 ? 'critico' : atencao > 0 ? 'atencao' : 'ok'};
+    if (ruptura) out.primeiraRuptura = ruptura;
+    return out;
+  }
+  // Depois de salvar na equipe, tambem registra uma versao na visao do dia (imutavel — ver online.js).
+  // Falha aqui nao desfaz o salvamento acima, que ja esta commitado; so avisa.
+  async function saveDaily(base, content) {
+    const dia = D.date, chave = cloud.dailyKey(record.id, content.scenario);
+    const existentes = Object.values(await cloud.listDailyVersions(dia, base, chave));
+    let motivo = '';
+    if (existentes.length) {
+      const ultima = existentes.sort((a, b) => b.versao - a.versao)[0];
+      const prosseguir = confirm(`Já existe uma visão salva hoje para ${base} · ${record.product} · `
+        + `${content.scenario} (v${ultima.versao}, por ${ultima.autorNome}). Salvar uma nova versão? `
+        + 'A anterior continua no histórico.');
+      if (!prosseguir) { note('Cenário salvo para a equipe. Visão do dia não atualizada.'); return; }
+      motivo = (prompt('Motivo da nova versão (obrigatório):', '') || '').trim();
+      if (!motivo) throw new Error('Informe o motivo para salvar uma nova versão na visão do dia.');
+    }
+    await cloud.saveDailyVersion(dia, base, chave, {base, produto: record.product, cenario: content.scenario,
+      nome: content.name, motivo, conteudo: JSON.stringify(content), fonteRevisao: D.revision,
+      indicadores: indicators(content)});
+    document.dispatchEvent(new CustomEvent('visao-dia:atualizar', {detail: {dia}}));
+    note('Cenário salvo para a equipe e na visão do dia.');
+  }
   async function save(copy) {
     if (!editable()) throw new Error('Seu perfil permite apenas consultar esta base.');
     const content = E.validate(structuredClone(state));
@@ -84,6 +122,8 @@
     if (selection !== identity()) return;
     currentId = id; expected = saved; state.name = content.name;
     persist(); await refresh(); note('Cenário salvo para a equipe.');
+    try { await saveDaily(base, content); }
+    catch (error) { note(`Cenário salvo para a equipe, mas a visão do dia falhou: ${error.message}`); }
   }
   $('cloud-save').onclick = () => run(() => save(false));
   $('cloud-copy').onclick = () => run(() => save(true));
