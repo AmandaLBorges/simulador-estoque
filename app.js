@@ -38,7 +38,7 @@ function products(){options($('product'),[...new Set(D.records.filter(r=>r.base=
 function select(){record=D.records.find(r=>r.base===$('base').value&&r.product===$('product').value);
  // Filtro de regiao pode deixar a lista de bases vazia (ex.: nao ha base dessa regiao pra este login);
  // sem guarda, fresh(undefined) quebra o resto do render e trava a tela com os chips desatualizados.
- if(!record){for(const id of ['grid','cards','alerts','chart'])$(id).innerHTML='';if($('bi-measures'))$('bi-measures').innerHTML='';message('Nenhuma base disponível para este filtro. Ajuste a região ou escolha outra base.');return;}
+ if(!record){for(const id of ['grid','cards','alerts','chart','semana-progresso'])$(id).innerHTML='';if($('bi-measures'))$('bi-measures').innerHTML='';message('Nenhuma base disponível para este filtro. Ajuste a região ou escolha outra base.');return;}
  baseline=fresh(record);state=structuredClone(baseline);try{const saved=localStorage.getItem(key());if(saved){const candidate=E.validate(JSON.parse(saved));if(candidate.id===record.id&&candidate.date===D.date){state=mergeSource(candidate,baseline);}}}catch{message('Cenário local inválido ou indisponível. Abertura original carregada.');}E.rows.find(r=>r[0]==='sale')[1]=state.scenario==='LE'?'Vendas · LE vigente':state.scenario==='Real'?'Vendas Real / projeção futura':'Vendas · Disp. MIS';premises();render(true);}
 // Politica de estoque (abertura/lastro/minimo/medio/maximo/capacidade): fixa, vem da planilha e nao
 // e' editavel pela simulacao (pedido da usuaria, 2026-09-28) — so os movimentos (entradas/saidas)
@@ -52,6 +52,7 @@ function status(v){return E.stockBand(v,state);}
 function render(rebuild=false){const result=E.calculate(state,n),original=E.calculate(baseline,n);
  $('source').textContent=`Abertura real de ${label(0)}/${D.date.slice(0,4)} • ${record.base} • ${record.product}. Próximos 14 dias preenchidos com o LE vigente, FOB/CIF e programação MIS. Extração: ${D.bi.extractedAt.replace('T',' ')}. Todos os volumes em m³.`;
  $('provenance').textContent=`Fonte: ${D.source} | Aba: ${record.sheet} | Linha: ${record.row}. Abertura original: ${fmt(record.opening)} m³. Histórico extraído das planilhas diárias, sem edição. Ausência de informação é exibida como “—”.`;
+ semanaProgresso();
  const low=Math.min(...result.map(x=>Math.min(x.opening,x.close))),last=result.at(-1).close;
  const first=result.findIndex(x=>['danger','warn'].includes(status(x.opening))||['danger','warn'].includes(status(x.close)));
  $('cards').innerHTML=[['Abertura de referência',fmt(state.opening),'m³ · início do dia'],['Fechamento ao fim de 14 dias',fmt(last),`m³ · diferença de ${fmt(last-original.at(-1).close)} vs. original`],['Menor estoque no período',fmt(low),'m³ · abertura e fechamento'],['Primeira atenção',first<0?'Sem alerta de limite':label(first),first<0?'Verifique os limites e campos não preenchidos':'Confira os pontos de atenção abaixo']].map(([title,value,sub],i)=>`<article class="card"><small>${title}</small><strong class="${i===2?status(low):''}">${value}</strong><em>${sub}</em></article>`).join('');
@@ -65,6 +66,17 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?(k==='opening'?history(i)?.opening:null):result[i][k];td.textContent=fmt(v);td.className=(i<0?'history ': '')+(['opening','close','available'].includes(k)?(v==null?'':status(v)):'');});
  document.querySelectorAll('[data-row]').forEach(input=>input.parentElement.classList.toggle('edited',state.movements[input.dataset.row][+input.dataset.day]!==baseline.movements[input.dataset.row][+input.dataset.day]));
  chart(result,original,Array.from({length:7+n},(_,i)=>i-7));alerts(result);
+}
+// record.bi.semana: {leSemana, realSemana} — vem da reprojecao do VMD (cidade+familia de produto);
+// so' existe pros 4 produtos cobertos (Gasolina, Diesel S10, Diesel S500, Hidratado) e quando o banco
+// de faturamento respondeu na ultima publicacao.
+function semanaProgresso(){
+ const el=$('semana-progresso');if(!el)return;
+ const semana=record.bi.semana;
+ if(!semana||!(semana.leSemana>0)){el.innerHTML='';return;}
+ const pct=semana.realSemana/semana.leSemana,estourou=pct>1;
+ const cor=estourou?'#8DC830':pct>=0.7?'#8DC830':pct>=0.35?'#F97316':'#FF6B5F';
+ el.innerHTML=`<div class="semana-progresso-rotulo">Ritmo da semana: <strong>${fmt(semana.realSemana)} de ${fmt(semana.leSemana)} m³ vendidos</strong> (${Math.round(pct*100)}%)${estourou?' · já passou da meta da semana':''}</div><div class="semana-progresso-barra"><div style="width:${Math.min(pct,1)*100}%;background:${cor}"></div></div>`;
 }
 function chart(result,original,offsets){const W=1200,H=250,L=60,R=20,T=16,B=32;const values=result.flatMap(x=>[x.opening,x.close]).concat(original.map(x=>x.close),offsets.filter(i=>i<0).map(i=>history(i)?.opening).filter(v=>v!=null),parameters.slice(1).map(([k])=>state[k]).filter(v=>v!==null),[0]);const lo=Math.min(...values),hi=Math.max(...values),span=Math.max(hi-lo,1),y=v=>T+(hi+span*.1-v)/(span*1.2)*(H-T-B),x=i=>L+(i+7+.5)*(W-L-R)/offsets.length;
  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Histórico de abertura e projeção de estoque em metros cúbicos"><rect x="${L}" y="0" width="${x(0)-L-(W-L-R)/offsets.length/2}" height="${H-B}" fill="#ffffff04"/>`;
