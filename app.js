@@ -16,15 +16,14 @@ function fresh(r){
  for(let i=0;i<15;i++){
   const loaded=r.bi?.days[day(i)];if(!loaded)continue;
   const future=day(i)>=today;
-  for(const k of ['sale','fob','cif','pump','progRoad','transferIn','transferOut']){
-   const mis=future&&scenario==='Inbound + MIS'&&i>=switchIndex&&['fob','cif','pump','progRoad'].includes(k);
+  for(const k of ['sale','fob','cif','pump','transferIn','transferOut']){
+   const mis=future&&scenario==='Inbound + MIS'&&i>=switchIndex&&['fob','cif','pump'].includes(k);
    movements[k][i]=(mis?loaded.inboundMis?.[k]:loaded[k])??0;
   }
   // Datas anteriores usam a mesma base em todos os cenarios.
   if(!future)continue;
   if(['Disp MIS','Inbound + MIS'].includes(scenario))movements.sale[i]=loaded.scenarios?.[scenario]?.availability??0;
   if(scenario==='Real'){
-   movements.progRoad[i]=0;
    if(day(i)<=D.bi.extractedAt.slice(0,10))movements.sale[i]=loaded.scenarios?.Real?.actualSales??0;
   }
  }
