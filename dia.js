@@ -138,7 +138,9 @@
 
   async function linhasDaSemana(dias) {
     const porDia = await cloud.listRange(dias);
-    const melhores = new Map();
+    // Salvos: a versao mais recente da semana por base+deposito+produto, QUALQUER cenario (nao separa
+    // mais por cenario — pra visao gerencial, uma linha por base+produto e' o que faz sentido).
+    const salvos = new Map();
     for (const dia of dias) {
       const arvore = porDia[dia] || {};
       for (const porChave of Object.values(arvore)) {
@@ -146,13 +148,31 @@
           const versoes = Object.values(chaveNode.versoes || {});
           if (!versoes.length) continue;
           const ultima = versoes.reduce((a, b) => (a.versao > b.versao ? a : b));
-          const chaveGlobal = `${ultima.base}|${ultima.deposito || ''}|${ultima.produto}|${ultima.cenario}`;
-          const atual = melhores.get(chaveGlobal);
-          if (!atual || (ultima.atualizadoEm || 0) > (atual.atualizadoEm || 0)) melhores.set(chaveGlobal, {...ultima, dia});
+          const chaveGlobal = `${ultima.base}|${ultima.deposito || ''}|${ultima.produto}`;
+          const atual = salvos.get(chaveGlobal);
+          if (!atual || (ultima.atualizadoEm || 0) > (atual.atualizadoEm || 0)) salvos.set(chaveGlobal, {...ultima, dia, salvo: true});
         }
       }
     }
-    return [...melhores.values()];
+    // Cobertura completa (pedido da usuaria, 2026-10-01: "considere o cenario do dia, caso salvo; se
+    // nao for salvo, considere o cenario padrao, pela simulacao do LE" — antes so' aparecia o que
+    // alguem tinha salvo, ficando vazio a maior parte do tempo). Toda base+deposito+produto do
+    // snapshot atual entra na lista: usa o salvo quando existir essa semana, senao calcula o LE
+    // padrao na hora (sem gravar nada, sem precisar de ninguem ter salvo antes).
+    const vistos = new Set(), linhas = [];
+    for (const r of D.records) {
+      const deposito = r.bi?.emp_dep || '';
+      const chaveGlobal = `${r.base}|${deposito}|${r.product}`;
+      if (vistos.has(chaveGlobal)) continue;
+      vistos.add(chaveGlobal);
+      const existente = salvos.get(chaveGlobal);
+      if (existente) { linhas.push(existente); continue; }
+      try {
+        linhas.push({base: r.base, deposito, produto: r.product, cenario: 'LE', salvo: false,
+          indicadores: window.SIM_INDICATORS(fresh(r, 'LE'))});
+      } catch { /* registro sem dado suficiente pro calculo (ex.: sem abertura); ignora */ }
+    }
+    return linhas;
   }
 
   async function renderSemana() {
@@ -172,12 +192,14 @@
     const semanaNum = numeroSemanaISO(segunda);
     const periodo = `${new Date(dias[0] + 'T12:00:00').toLocaleDateString('pt-BR')} a ${new Date(dias[6] + 'T12:00:00').toLocaleDateString('pt-BR')}`;
     if (!itens.length) {
-      statusSemana.textContent = `Semana ${semanaNum} (${periodo}): nenhuma visão salva com os filtros atuais.`;
+      statusSemana.textContent = `Semana ${semanaNum} (${periodo}): nenhuma base encontrada com os filtros atuais.`;
       return;
     }
     const resumo = itens.reduce((c, it) => ({...c, [it.indicadores.situacao]: (c[it.indicadores.situacao] || 0) + 1}), {});
-    statusSemana.textContent = `Semana ${semanaNum} (${periodo}) · ${itens.length} visão(ões) — `
-      + `${resumo.critico || 0} crítica(s) · ${resumo.atencao || 0} em atenção · ${resumo.ok || 0} ok.`;
+    const salvos = itens.filter(it => it.salvo).length;
+    statusSemana.textContent = `Semana ${semanaNum} (${periodo}) · ${itens.length} base(s) — `
+      + `${resumo.critico || 0} crítica(s) · ${resumo.atencao || 0} em atenção · ${resumo.ok || 0} ok `
+      + `· ${salvos} salva(s) pela equipe, ${itens.length - salvos} calculada(s) agora pelo LE padrão.`;
     barra.innerHTML = ['critico', 'atencao', 'ok'].filter(s => resumo[s]).map(s =>
       `<span class="${s}" style="flex:${resumo[s]}">${resumo[s]}</span>`).join('');
     lista.innerHTML = itens.map(it => `<div class="card dia-${it.indicadores.situacao}">
@@ -185,7 +207,7 @@
       <small>${esc(it.deposito || '—')} · ${esc(it.produto)} · ${esc(it.cenario)}</small>
       <p><strong>${rotuloSituacao[it.indicadores.situacao]}</strong> — menor estoque ${fmt(it.indicadores.menorEstoque)} m³
       ${it.indicadores.diaMenorEstoque ? `em ${new Date(it.indicadores.diaMenorEstoque + 'T12:00:00').toLocaleDateString('pt-BR')}` : ''}</p>
-      <small>Salvo em ${new Date(it.dia + 'T12:00:00').toLocaleDateString('pt-BR')} · v${it.versao} · ${esc(it.autorNome)}</small>
+      <small>${it.salvo ? `Salvo em ${new Date(it.dia + 'T12:00:00').toLocaleDateString('pt-BR')} · v${it.versao} · ${esc(it.autorNome)}` : 'Não salvo · LE padrão calculado agora'}</small>
       <div><button type="button" data-abrir="${esc(it.base)}|${esc(it.produto)}|${esc(it.cenario)}">Abrir</button></div>
     </div>`).join('');
   }

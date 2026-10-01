@@ -140,4 +140,7 @@
   $('cloud-save').onclick = () => run(() => save(false));
   $('cloud-copy').onclick = () => run(() => save(true));
   lock();
+  // Exposta pra dia.js reaproveitar o mesmo calculo de risco (critico/atencao/ok) no fallback "LE
+  // padrao ao vivo" dos Riscos da semana (pedido da usuaria, 2026-10-01) — sem duplicar a logica aqui.
+  window.SIM_INDICATORS = indicators;
 })();
