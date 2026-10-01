@@ -1,6 +1,9 @@
 'use strict';
 (() => {
- const modes=['Disp MIS','LE','Real'];
+ // 5 cenarios (pedido da usuaria, 2026-09-30): VMD/LE/Pedidos em tela/Real puxam dado pra linha que
+ // debita (unica editavel); Disp MIS mantido a pedido dela ("deixa disp mis tbm"). O usuario sempre
+ // pode digitar por cima do valor puxado (customizar), igual ja funcionava antes.
+ const modes=['VMD','LE','Pedidos em tela','Real','Disp MIS'];
  const today=simulationToday;
  const dateLabel=value=>new Date(value+'T12:00:00').toLocaleDateString('pt-BR');
  const popup=$('sales-popover');
@@ -29,13 +32,15 @@
  document.querySelector('.product-options').hidden=true;
  document.querySelector('.base-options').hidden=true;
  selector.parentElement.hidden=true;
+ // Botoes de cenario: ficavam no topo, junto dos filtros; movidos pra cima da tabela (pedido da
+ // usuaria, 2026-09-30, "fica mais simples") — e' o controle que escolhe de onde a linha que debita
+ // puxa o dado, entao faz mais sentido perto da tabela do que la em cima.
  const controls=document.createElement('div');
  controls.className='scenario-controls';
- controls.innerHTML='<span class="eyebrow">CENÁRIO DE VENDA</span><div id="scenario-buttons" role="group" aria-label="Cenário de venda">'+modes.map(mode=>`<button type="button" data-scenario="${mode}" aria-pressed="false">${mode}</button>`).join('')+'</div><small id="scenario-period"></small>';
- selector.parentElement.after(controls);
+ controls.innerHTML='<span>Puxar vendas de:</span><div id="scenario-buttons" role="group" aria-label="Cenário de venda">'+modes.map(mode=>`<button type="button" data-scenario="${mode}" aria-pressed="false">${mode}</button>`).join('')+'</div>';
+ tableSection.querySelector('.section-title').after(controls);
  function syncButtons(){
   controls.querySelectorAll('button').forEach(button=>{button.setAttribute('aria-pressed',String(button.dataset.scenario===state.scenario));});
-  $('scenario-period').textContent=`A partir de ${dateLabel(today())} · abertura disponível: ${dateLabel(D.date)}`;
  }
 
  function closePopup(){if(anchor)anchor.removeAttribute('aria-describedby');anchor=null;popup.hidden=true;}
@@ -65,8 +70,12 @@
  function showPopup(input){
   closePopup();anchor=input;
   const index=input.dataset.day===undefined?editDay:Number(input.dataset.day);
-  const loaded=record.bi?.days[day(index)],scenarios=loaded?.scenarios||{};
-  const values=[['VMD',loaded?.vmd],['LE',scenarios.LE?.plannedSales],['Pedidos em aberto',loaded?.ordersOnScreen]];
+  const loaded=record.bi?.days[day(index)];
+  // semana.porDia vem da reprojecao (reprojecao_vmd.py): 'le' e' a meta ORIGINAL antes de reprojetar
+  // (diferente de loaded.vmd, que ja' e' o valor reprojetado) e 'real' e' o faturamento MySQL do dia
+  // (diferente de loaded.billing, que e' volume de PEDIDO do VA05, nao faturamento).
+  const semanaDia=record.bi?.semana?.porDia?.[day(index)];
+  const values=[['VMD',loaded?.vmd],['LE vigente',semanaDia?.le],['Pedidos em tela',loaded?.billing],['Vendas reais',semanaDia?.real]];
   popup.innerHTML=`<strong>Vendas · ${dateLabel(day(index))}</strong><dl>${values.map(([name,value])=>`<div><dt>${name}</dt><dd>${value==null?'Sem dado':fmt(value)+' m³'}</dd></div>`).join('')}</dl><p>${day(index)<today()?'Anterior à simulação':`Cenário: <strong>${esc(state.scenario)}</strong>`}</p><p>Aplicado: <strong>${fmt(state.movements.sale[index])} m³</strong>${state.movements.sale[index]!==baseline.movements.sale[index]?' · editado':''}</p>${state.scenario==='Real'&&day(index)>D.bi.extractedAt.slice(0,10)?'<p>Valor aplicado com projeção futura.</p>':''}`;
   input.setAttribute('aria-describedby','sales-popover');
   popup.hidden=false;

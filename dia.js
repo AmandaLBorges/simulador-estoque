@@ -199,12 +199,15 @@
   let atrasoSemana;
   campoBaseSemana.oninput = () => { clearTimeout(atrasoSemana); atrasoSemana = setTimeout(renderSemana, 250); };
 
-  abrir.onclick = () => { view.hidden = false; renderSemana(); };
+  // Rola pro topo ao abrir — a secao #dia-view ja fica no comeco do HTML (antes do header/main), mas
+  // sem isso a pagina pode continuar com o scroll de onde o usuario estava na simulacao.
+  abrir.onclick = () => { view.hidden = false; renderSemana(); scrollTo({top: 0, behavior: 'smooth'}); };
   fechar.onclick = () => { view.hidden = true; };
   document.addEventListener('visao-dia:atualizar', event => {
     view.hidden = false;
     tabs.forEach(b => b.setAttribute('aria-selected', String(b.dataset.diaTab === 'data')));
     paineis.semana.hidden = true; paineis.data.hidden = false;
     campoData.value = event.detail.dia; renderDia();
+    scrollTo({top: 0, behavior: 'smooth'});
   });
 })();

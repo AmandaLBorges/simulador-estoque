@@ -22,15 +22,31 @@ function fresh(r){
   }
   // Datas anteriores usam a mesma base em todos os cenarios.
   if(!future)continue;
-  if(['Disp MIS','Inbound + MIS'].includes(scenario))movements.sale[i]=loaded.scenarios?.[scenario]?.availability??0;
-  if(scenario==='Real'){
-   if(day(i)<=D.bi.extractedAt.slice(0,10))movements.sale[i]=loaded.scenarios?.Real?.actualSales??0;
-  }
+  // 5 cenarios de venda (pedido da usuaria, 2026-09-30): VMD (reprojetada), LE (vigente, SEM
+  // reprojecao — antes do 2026-09-30 esse botao aplicava a reprojetada, agora aplica o valor original),
+  // Pedidos em tela (VA05, total do dia, todos os status — igual ao que o BI mostra hoje, nao so' os
+  // "Em processamento"), Real (faturamento MySQL ate' agora, nao o volume de pedido do VA05) e Disp MIS
+  // (disponibilidade, inalterado). semana.porDia so' existe pros produtos cobertos pela reprojecao.
+  const semanaDia=r.bi?.semana?.porDia?.[day(i)];
+  if(scenario==='VMD')movements.sale[i]=loaded.vmd??0;
+  else if(scenario==='LE')movements.sale[i]=semanaDia?.le??0;
+  else if(scenario==='Pedidos em tela')movements.sale[i]=loaded.billing??0;
+  else if(scenario==='Real'){if(day(i)<=D.bi.extractedAt.slice(0,10))movements.sale[i]=semanaDia?.real??0;}
+  else if(['Disp MIS','Inbound + MIS'].includes(scenario))movements.sale[i]=loaded.scenarios?.[scenario]?.availability??0;
  }
  return {version:1,id:r.id,date:D.date,sourceRevision:D.revision,name:'Minha simulação',opening:r.opening,lastro:r.bi?.days[day(0)]?.scenarios?.[scenario]?.lastro??r.policy?.lastro??null,min:r.policy?.min??null,mid:r.policy?.mid??null,max:r.policy?.max??null,capacity:r.policy?.capacity??null,clamp:false,scenario,switchIndex,movements};
 }
 function key(){return 'nexta-stock-auto-v2:'+D.date+':'+record.id+':'+($('scenario')?.value||'LE');}
-function sourceNote(k,i){const loaded=record.bi?.days[day(i)],mode=state.scenario;if(['received','planned','purchase','loanIn','loanOut'].includes(k))return 'Ajuste adicional manual; não repetir um volume já importado.';if(['fob','cif'].includes(k)){const mis=mode==='Inbound + MIS'&&i>=state.switchIndex;return `${mis?'Cadências MIS ('+k.toUpperCase()+')':'CSV do portal, com filtro de status e data de descarga'} · ${fmt((mis?loaded?.inboundMis[k]:loaded?.[k])??0)} m³ · ${day(i)}`;}if(k==='sale'&&['Disp MIS','Inbound + MIS'].includes(mode))return `Disp. MIS · ${fmt(loaded?.scenarios?.[mode]?.availability)} m³`;if(k==='sale'&&mode==='Real'&&day(i)<=D.bi.extractedAt.slice(0,10))return `Vendas Real · ${fmt(loaded?.scenarios?.Real?.actualSales)} m³ nos pedidos do SAP`;const field=k==='sale'?'vmd':k;if(loaded?.missingModelRow)return 'Sem linha de dados para este recorte nas fontes; valor inicial zero.';return `${D.bi?.formulas[field]??D.bi?.formulas[k]??k} · ${loaded?.[field]==null?'sem valor na fonte, considerado zero na simulação':fmt(loaded[field])+' m³ importados'} · ${day(i)}`;}
+function sourceNote(k,i){const loaded=record.bi?.days[day(i)],mode=state.scenario;if(['received','planned','purchase','loanIn','loanOut'].includes(k))return 'Ajuste adicional manual; não repetir um volume já importado.';if(['fob','cif'].includes(k)){const mis=mode==='Inbound + MIS'&&i>=state.switchIndex;return `${mis?'Cadências MIS ('+k.toUpperCase()+')':'CSV do portal, com filtro de status e data de descarga'} · ${fmt((mis?loaded?.inboundMis[k]:loaded?.[k])??0)} m³ · ${day(i)}`;}
+ if(k==='sale'){
+  const semanaDia=record.bi?.semana?.porDia?.[day(i)];
+  if(mode==='VMD')return `VMD reprojetada · ${loaded?.vmd==null?'sem valor na fonte':fmt(loaded.vmd)+' m³'} · ${day(i)}`;
+  if(mode==='LE')return `LE vigente, sem reprojeção · ${semanaDia?.le==null?'sem valor na fonte':fmt(semanaDia.le)+' m³'} · ${day(i)}`;
+  if(mode==='Pedidos em tela')return `Pedidos em tela (VA05, todos os status) · ${loaded?.billing==null?'sem valor na fonte':fmt(loaded.billing)+' m³'} · ${day(i)}`;
+  if(mode==='Real')return `Faturado real até agora · ${semanaDia?.real==null?'sem valor na fonte':fmt(semanaDia.real)+' m³'} · ${day(i)}`;
+  if(['Disp MIS','Inbound + MIS'].includes(mode))return `Disponibilidade MIS · ${fmt(loaded?.scenarios?.[mode]?.availability)} m³ · ${day(i)}`;
+ }
+ const field=k==='sale'?'vmd':k;if(loaded?.missingModelRow)return 'Sem linha de dados para este recorte nas fontes; valor inicial zero.';return `${D.bi?.formulas[field]??D.bi?.formulas[k]??k} · ${loaded?.[field]==null?'sem valor na fonte, considerado zero na simulação':fmt(loaded[field])+' m³ importados'} · ${day(i)}`;}
 function message(s){$('message').textContent=s;clearTimeout(timer);timer=setTimeout(()=>$('message').textContent='',7000);}
 function persist(){try{state.sourceBaseline=baseline;localStorage.setItem(key(),JSON.stringify(state));$('saved').textContent='SALVO NESTE NAVEGADOR';}catch{$('saved').textContent='SEM SALVAMENTO LOCAL';message('Não foi possível salvar no navegador. Exporte o JSON para guardar suas alterações.');}}
 function options(el,values){el.replaceChildren(...values.map(v=>new Option(v,v)));}
@@ -39,7 +55,7 @@ function select(){record=D.records.find(r=>r.base===$('base').value&&r.product==
  // Filtro de regiao pode deixar a lista de bases vazia (ex.: nao ha base dessa regiao pra este login);
  // sem guarda, fresh(undefined) quebra o resto do render e trava a tela com os chips desatualizados.
  if(!record){for(const id of ['grid','cards','alerts','chart','semana-progresso'])$(id).innerHTML='';if($('bi-measures'))$('bi-measures').innerHTML='';message('Nenhuma base disponível para este filtro. Ajuste a região ou escolha outra base.');return;}
- baseline=fresh(record);state=structuredClone(baseline);try{const saved=localStorage.getItem(key());if(saved){const candidate=E.validate(JSON.parse(saved));if(candidate.id===record.id&&candidate.date===D.date){state=mergeSource(candidate,baseline);}}}catch{message('Cenário local inválido ou indisponível. Abertura original carregada.');}E.rows.find(r=>r[0]==='sale')[1]=state.scenario==='LE'?'Vendas · LE vigente':state.scenario==='Real'?'Vendas Real / projeção futura':'Vendas · Disp. MIS';premises();render(true);}
+ baseline=fresh(record);state=structuredClone(baseline);try{const saved=localStorage.getItem(key());if(saved){const candidate=E.validate(JSON.parse(saved));if(candidate.id===record.id&&candidate.date===D.date){state=mergeSource(candidate,baseline);}}}catch{message('Cenário local inválido ou indisponível. Abertura original carregada.');}E.rows.find(r=>r[0]==='sale')[1]=({VMD:'Vendas · VMD reprojetada',LE:'Vendas · LE vigente',['Pedidos em tela']:'Vendas · Pedidos em tela',Real:'Vendas · Faturado (Real)',['Disp MIS']:'Vendas · Disp. MIS'})[state.scenario]||'Vendas';premises();render(true);}
 // Politica de estoque (abertura/lastro/minimo/medio/maximo/capacidade): fixa, vem da planilha e nao
 // e' editavel pela simulacao (pedido da usuaria, 2026-09-28) — so os movimentos (entradas/saidas)
 // continuam editaveis, na tabela e no editor por dia.
@@ -59,8 +75,20 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  const offsets=Array.from({length:n},(_,i)=>i);
  if(rebuild){let html='<thead><tr><th>Movimento / m³</th>'+offsets.map(i=>`<th class="${i<0?'history':i===0?'today':''}">${label(i)}<br><small>${i<0?'Histórico':i===0?'Referência':'Simulação'}</small></th>`).join('')+'</tr></thead><tbody>';
  const outputRow=(key,name)=>`<tr class="total"><th>${name}</th>${offsets.map(i=>`<td data-result="${key}" data-day="${i}"></td>`).join('')}</tr>`;
- html+=outputRow('opening','Estoque inicial · abertura');html+=outputRow('lastro','Lastro mínimo');html+=outputRow('openingNet','Abertura menos lastro');
- for(const [k,l,sign] of E.rows){html+=`<tr class="${sign>0?'entry':'exit'}"><th>${sign>0?'+':'−'} ${l}</th>`+offsets.map(i=>i<0?`<td class="history" title="${k==='sale'?'Faturamento pendente de integração':'Informação histórica da fonte'}">${fmt(history(i)?.[k])}</td>`:`<td><input type="number" step="any" min="0" data-row="${k}" data-day="${i}" aria-label="${l} ${label(i)}" value="${Math.round(state.movements[k][i])}" title="${esc(sourceNote(k,i))}"></td>`).join('')+'</tr>';}
+ // 4 linhas informativas (so' leitura, nao entram no calculo) mostrando as referencias da venda antes
+ // da linha editavel que realmente debita do estoque — pedido da usuaria, 2026-09-30: ver as 4 fontes
+ // (VMD reprojetada, LE original sem reprojecao, Pedidos em tela = VA05 total do dia/todos os status,
+ // faturamento real) fixas, lado a lado com o que foi aplicado (que o usuario escolhe puxar ou digitar).
+ const infoRow=(titulo,getter)=>`<tr class="info-row"><th>↳ ${titulo}</th>${offsets.map(i=>`<td class="history">${i<0?'—':fmt(getter(i))}</td>`).join('')}</tr>`;
+ for(const [k,l,sign] of E.rows){
+  if(k==='sale'){
+   html+=infoRow('VMD reprojetada',i=>record.bi?.days[day(i)]?.vmd);
+   html+=infoRow('LE vigente (sem reprojeção)',i=>record.bi?.semana?.porDia?.[day(i)]?.le);
+   html+=infoRow('Pedidos em tela',i=>record.bi?.days[day(i)]?.billing);
+   html+=infoRow('Vendas reais (faturamento)',i=>record.bi?.semana?.porDia?.[day(i)]?.real);
+  }
+  html+=`<tr class="${sign>0?'entry':'exit'}"><th>${sign>0?'+':'−'} ${l}</th>`+offsets.map(i=>i<0?`<td class="history" title="${k==='sale'?'Faturamento pendente de integração':'Informação histórica da fonte'}">${fmt(history(i)?.[k])}</td>`:`<td><input type="number" step="any" min="0" data-row="${k}" data-day="${i}" aria-label="${l} ${label(i)}" value="${Math.round(state.movements[k][i])}" title="${esc(sourceNote(k,i))}"></td>`).join('')+'</tr>';
+ }
  for(const [k,l] of [['incoming','Total de entradas'],['outgoing','Total de saídas'],['close','Fechamento projetado'],['available','Fechamento menos lastro']])html+=outputRow(k,l);
  $('grid').innerHTML=html+'</tbody>';}
  document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?(k==='opening'?history(i)?.opening:null):result[i][k];td.textContent=fmt(v);td.className=(i<0?'history ': '')+(['opening','close','available'].includes(k)?(v==null?'':status(v)):'');});
@@ -79,15 +107,36 @@ function semanaProgresso(){
  // Faturamento so' tem granularidade de dia (sem hora), entao "ate' agora" na pratica e' "ate' a
  // ultima publicacao" — mostra o horario da extracao em vez de sugerir precisao por hora que nao existe.
  const horaExtracao=new Date(D.bi.extractedAt).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
- el.innerHTML=`<div class="semana-progresso-rotulo">Ritmo da semana (dados até ${horaExtracao}): <strong>${fmt(semana.realSemana)} de ${fmt(semana.leSemana)} m³ vendidos</strong> (${Math.round(pct*100)}%)${estourou?' · já passou da meta da semana':''}</div><div class="semana-progresso-barra"><div style="width:${Math.min(pct,1)*100}%;background:${cor}"></div></div>`;
+ const dias=Object.keys(semana.porDia||{}).sort();
+ const hojeIso=simulationToday();
+ const tabela=dias.length?`<table class="semana-progresso-tabela"><thead><tr><th>Dia</th>${dias.map(d=>`<th class="${d===hojeIso?'today':''}">${new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'short'})}<br><small>${new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}</small></th>`).join('')}</tr></thead><tbody>
+   <tr><th>LE</th>${dias.map(d=>`<td class="${d===hojeIso?'today':''}">${fmt(semana.porDia[d].le)}</td>`).join('')}</tr>
+   <tr><th>Vendido</th>${dias.map(d=>`<td class="${d===hojeIso?'today':''}">${fmt(semana.porDia[d].real)}</td>`).join('')}</tr>
+ </tbody></table>`:'';
+ el.innerHTML=`<div class="semana-progresso-rotulo">Ritmo da semana (dados até ${horaExtracao}): <strong>${fmt(semana.realSemana)} de ${fmt(semana.leSemana)} m³ vendidos</strong> (${Math.round(pct*100)}%)${estourou?' · já passou da meta da semana':''}</div><div class="semana-progresso-barra"><div style="width:${Math.min(pct,1)*100}%;background:${cor}"></div></div>${tabela}`;
 }
-function chart(result,original,offsets){const W=1200,H=250,L=60,R=20,T=16,B=32;const values=result.flatMap(x=>[x.opening,x.close]).concat(original.map(x=>x.close),offsets.filter(i=>i<0).map(i=>history(i)?.opening).filter(v=>v!=null),parameters.slice(1).map(([k])=>state[k]).filter(v=>v!==null),[0]);const lo=Math.min(...values),hi=Math.max(...values),span=Math.max(hi-lo,1),y=v=>T+(hi+span*.1-v)/(span*1.2)*(H-T-B),x=i=>L+(i+7+.5)*(W-L-R)/offsets.length;
+// Series finas de movimento (so' cobrem i>=0 — dias passados ainda nao tem esses campos no
+// historico, so' opening/planned/received/sale; ver "editar passado" pausado).
+const movSeries=[
+ ['received','Recebimentos','#7DD3C0',i=>i>=0?state.movements.received[i]:null],
+ ['pump','Prog. Bombeio','#2DD4BF',i=>i>=0?state.movements.pump[i]:null],
+ ['progRoad','Prog. Rodoviário','#5EEAD4',i=>i>=0?(record.bi?.days[day(i)]?.progRoad??null):null],
+ ['transferIn','Transf. entrada','#94A3B8',i=>i>=0?state.movements.transferIn[i]:null],
+ ['fob','Trânsito FOB','#64748B',i=>i>=0?state.movements.fob[i]:null],
+ ['cif','Trânsito CIF','#FDE68A',i=>i>=0?state.movements.cif[i]:null],
+ ['vmd','Média Vendas','#E5E7EB',i=>i>=0?(record.bi?.days[day(i)]?.vmd??null):null],
+ ['plannedSales','Vendas Planejadas','#D9F99D',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.LE?.plannedSales??null):null],
+ ['actualSales','Vendas Real','#4ADE80',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.Real?.actualSales??null):null],
+ ['availability','Disp. MIS','#A3E635',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.['Disp MIS']?.availability??null):null],
+];
+function chart(result,original,offsets){const W=1200,H=250,L=60,R=20,T=16,B=32;const movValores=movSeries.flatMap(([,,,f])=>offsets.map(f)).filter(v=>v!=null);const values=result.flatMap(x=>[x.opening,x.close]).concat(original.map(x=>x.close),offsets.filter(i=>i<0).map(i=>history(i)?.opening).filter(v=>v!=null),parameters.slice(1).map(([k])=>state[k]).filter(v=>v!==null),movValores,[0]);const lo=Math.min(...values),hi=Math.max(...values),span=Math.max(hi-lo,1),y=v=>T+(hi+span*.1-v)/(span*1.2)*(H-T-B),x=i=>L+(i+7+.5)*(W-L-R)/offsets.length;
  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Histórico de abertura e projeção de estoque em metros cúbicos"><rect x="${L}" y="0" width="${x(0)-L-(W-L-R)/offsets.length/2}" height="${H-B}" fill="#ffffff04"/>`;
  for(let j=0;j<5;j++){const v=lo+(hi-lo)*j/4;svg+=`<path d="M${L} ${y(v)}H${W-R}" stroke="#314A32"/><text x="${L-8}" y="${y(v)+4}" fill="#7FA069" text-anchor="end" font-size="11">${fmt(v)}</text>`;}
  for(const [k,color,dash] of [['min','#FF6B5F','4 5'],['mid','#9CA3AF','4 5'],['lastro','#F97316','4 5'],['max','#8DC830','4 5'],['capacity','#38BDF8','']])if(state[k]!==null)svg+=`<path d="M${L} ${y(state[k])}H${W-R}" stroke="${color}" stroke-width="${k==='capacity'?2:1}" stroke-dasharray="${dash}"><title>${k}: ${fmt(state[k])} m³</title></path>`;
  const today=simulationToday();
  for(const i of offsets){const v=i<0?history(i)?.opening:result[i].opening;if(v!=null){const barTop=Math.min(y(v),y(0)),cor=i<0?'#527568':status(v)==='danger'?'#FF6B5F':status(v)==='warn'?'#F97316':day(i)===today?'#9CA3AF':'#14B8A6';svg+=`<rect x="${x(i)-12}" y="${barTop}" width="24" height="${Math.max(1,Math.abs(y(v)-y(0)))}" fill="${cor}" opacity=".9"><title>${label(i)} · Abertura: ${fmt(v)} m³</title></rect>`;const rotulo=fmt(v),largura=Math.max(26,rotulo.length*7+10);svg+=`<rect x="${x(i)-largura/2}" y="${barTop-22}" width="${largura}" height="17" rx="4" fill="#EAF6E8" opacity=".92"/><text x="${x(i)}" y="${barTop-10}" text-anchor="middle" fill="#14210F" font-size="11" font-weight="700">${rotulo}</text>`;}svg+=`<text x="${x(i)}" y="${H-8}" text-anchor="middle" fill="${day(i)===today?'#EEFE7A':'#BFD4A8'}" font-size="11" font-weight="${day(i)===today?'700':'400'}">${label(i)}</text>`;}
  for(const [series,color,dash] of [[original,'#7FA069','5 5'],[result,'#EEFE7A','']])svg+=`<polyline points="${series.map((v,i)=>`${x(i)},${y(v.close)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2.5" stroke-dasharray="${dash}"/>`;
+ for(const [chave,nome,cor,valorEm] of movSeries){const pontos=offsets.map(i=>[i,valorEm(i)]).filter(([,v])=>v!=null);if(!pontos.length)continue;svg+=`<polyline points="${pontos.map(([i,v])=>`${x(i)},${y(v)}`).join(' ')}" fill="none" stroke="${cor}" stroke-width="1.5" opacity=".85"/>`;for(const [i,v] of pontos)svg+=`<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${cor}"><title>${label(i)} · ${nome}: ${fmt(v)} m³</title></circle>`;}
  result.forEach((v,i)=>{svg+=`<circle cx="${x(i)}" cy="${y(v.close)}" r="4" fill="${status(v.close)==='danger'?'#FF6B5F':status(v.close)==='warn'?'#F97316':'#EEFE7A'}"><title>${label(i)} · Fechamento: ${fmt(v.close)} m³</title></circle>`;});$('chart').innerHTML=svg+'</svg>';}
 function alerts(result){const items=['O histórico de vendas realizadas não é carregado nesta versão; as vendas futuras usam o LE vigente e, hoje, o maior entre o LE e os pedidos do SAP.',`Valores futuros carregados das fontes (${D.bi.extractedAt.replace('T',' ')}). Portal carregado até ${D.bi.coverage.portal_max.slice(0,10)}; cadências MIS até ${D.bi.coverage.cadencia_max.slice(0,10)}.`];if(parameters.slice(1).some(([k])=>state[k]===null))items.push('A planilha de política tem campos vazios neste recorte; os alertas correspondentes estão indisponíveis.');result.forEach((r,i)=>{const low=Math.min(r.opening,r.close),high=Math.max(r.opening,r.close),a=[];if(low<0)a.push(`déficit físico de ${fmt(-low)} m³`);if(state.lastro!==null&&low<state.lastro)a.push('estoque abaixo do lastro');if(state.min!==null&&low<=state.min)a.push(`no mínimo ou abaixo em ${fmt(state.min-low)} m³`);if(state.capacity!==null&&high>state.capacity)a.push(`capacidade excedida em ${fmt(high-state.capacity)} m³`);else if(state.max!==null&&high>state.max)a.push('acima do estoque máximo');if(a.length)items.push(label(i)+': '+a.join(' • '));});$('alerts').innerHTML=items.map(s=>`<div class="alert">${esc(s)}</div>`).join('');}
 function download(name,text,type){const url=URL.createObjectURL(new Blob([text],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
