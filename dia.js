@@ -165,14 +165,38 @@
       const chaveGlobal = `${r.base}|${deposito}|${r.product}`;
       if (vistos.has(chaveGlobal)) continue;
       vistos.add(chaveGlobal);
+      // % do LE da semana ja' vendido (pedido da usuaria, 2026-10-01) — vem do mesmo campo usado na
+      // barrinha "Ritmo da semana"; so' existe pros 4 produtos cobertos pela reprojecao. Preenchido
+      // pro registro ATUAL (hoje), independente de ser um item salvo ou calculado agora.
+      const semana = r.bi?.semana && r.bi.semana.leSemana > 0 ? r.bi.semana : null;
       const existente = salvos.get(chaveGlobal);
-      if (existente) { linhas.push(existente); continue; }
+      if (existente) { linhas.push({...existente, semana}); continue; }
       try {
-        linhas.push({base: r.base, deposito, produto: r.product, cenario: 'LE', salvo: false,
-          indicadores: window.SIM_INDICATORS(fresh(r, 'LE'))});
+        const content = fresh(r, 'LE'), resultado = E.calculate(content, n), indicadores = window.SIM_INDICATORS(content);
+        const diaIdx = indicadores.diaMenorEstoque == null ? null
+          : Math.round((new Date(indicadores.diaMenorEstoque + 'T12:00:00') - new Date(D.date + 'T12:00:00')) / 86400000);
+        const fluxoDia = diaIdx != null && resultado[diaIdx] ? {incoming: resultado[diaIdx].incoming, outgoing: resultado[diaIdx].outgoing} : null;
+        linhas.push({base: r.base, deposito, produto: r.product, cenario: 'LE', salvo: false, indicadores, fluxoDia, semana});
       } catch { /* registro sem dado suficiente pro calculo (ex.: sem abertura); ignora */ }
     }
     return linhas;
+  }
+  // Texto curto explicando a causa (pedido da usuaria, 2026-10-01: "resumo de causas" pra diretoria
+  // bater o olho). So' descreve o que da' pra ver nos dados — nao tenta adivinhar motivo de negocio.
+  function causaTexto(it) {
+    const ind = it.indicadores;
+    if (ind.situacao === 'ok') return null;
+    const partes = [];
+    const diaFmt = ind.diaMenorEstoque ? new Date(ind.diaMenorEstoque + 'T12:00:00').toLocaleDateString('pt-BR', {weekday: 'short', day: '2-digit', month: '2-digit'}) : null;
+    partes.push(`menor estoque ${fmt(ind.menorEstoque)} m³${diaFmt ? ' em ' + diaFmt : ''}`);
+    if (it.fluxoDia) {
+      const {incoming, outgoing} = it.fluxoDia;
+      if (outgoing > incoming) partes.push(`saiu ${fmt(outgoing)} m³ e entrou só ${fmt(incoming)} m³ nesse dia`);
+      else if (incoming === 0) partes.push('nenhuma entrada programada nesse dia');
+    }
+    if (it.semana) partes.push(`${Math.round(it.semana.realSemana / it.semana.leSemana * 100)}% do LE da semana já vendido`);
+    if (ind.primeiraRuptura) partes.push(`ruptura a partir de ${new Date(ind.primeiraRuptura + 'T12:00:00').toLocaleDateString('pt-BR')}`);
+    return partes.join(' · ');
   }
 
   async function renderSemana() {
@@ -202,11 +226,19 @@
       + `· ${salvos} salva(s) pela equipe, ${itens.length - salvos} calculada(s) agora pelo LE padrão.`;
     barra.innerHTML = ['critico', 'atencao', 'ok'].filter(s => resumo[s]).map(s =>
       `<span class="${s}" style="flex:${resumo[s]}">${resumo[s]}</span>`).join('');
+    // Resumo executivo em texto (pedido da usuaria, 2026-10-01: "consolidar em formato de texto, com
+    // as principais causas, pra diretoria bater o olho") — so' os criticos, no topo da aba, antes dos
+    // cards. Limitado a 8 pra nao virar uma parede de texto; o resto continua nos cards abaixo.
+    const criticos = itens.filter(it => it.indicadores.situacao === 'critico');
+    const resumoEl = $('semana-resumo');
+    resumoEl.innerHTML = !criticos.length ? '' : `<p><strong>${criticos.length} base(s) crítica(s) esta semana:</strong></p><ul>`
+      + criticos.slice(0, 8).map(it => `<li><strong>${esc(it.base)}</strong> (${esc(it.produto)}) — ${esc(causaTexto(it))}</li>`).join('')
+      + (criticos.length > 8 ? `<li><em>+ ${criticos.length - 8} outra(s) crítica(s) na lista abaixo.</em></li>` : '') + '</ul>';
     lista.innerHTML = itens.map(it => `<div class="card dia-${it.indicadores.situacao}">
       <h3>${esc(it.base)}</h3>
       <small>${esc(it.deposito || '—')} · ${esc(it.produto)} · ${esc(it.cenario)}</small>
-      <p><strong>${rotuloSituacao[it.indicadores.situacao]}</strong> — menor estoque ${fmt(it.indicadores.menorEstoque)} m³
-      ${it.indicadores.diaMenorEstoque ? `em ${new Date(it.indicadores.diaMenorEstoque + 'T12:00:00').toLocaleDateString('pt-BR')}` : ''}</p>
+      <p><strong>${rotuloSituacao[it.indicadores.situacao]}</strong> — ${esc(causaTexto(it) || `menor estoque ${fmt(it.indicadores.menorEstoque)} m³`)}</p>
+      ${it.semana ? `<small>${Math.round(it.semana.realSemana / it.semana.leSemana * 100)}% do LE da semana vendido (${fmt(it.semana.realSemana)} de ${fmt(it.semana.leSemana)} m³)</small>` : ''}
       <small>${it.salvo ? `Salvo em ${new Date(it.dia + 'T12:00:00').toLocaleDateString('pt-BR')} · v${it.versao} · ${esc(it.autorNome)}` : 'Não salvo · LE padrão calculado agora'}</small>
       <div><button type="button" data-abrir="${esc(it.base)}|${esc(it.produto)}|${esc(it.cenario)}">Abrir</button></div>
     </div>`).join('');

@@ -13,6 +13,14 @@ function simulationToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Ame
 // "Visao da semana" pra calcular o LE padrao ao vivo de bases sem cenario salvo.
 function fresh(r,cenarioForcado){
  const scenario=cenarioForcado||$('scenario')?.value||'LE',today=simulationToday();
+ // Origem da entrada (pedido da usuaria, 2026-10-01): 'auto' = fontes de sempre (FOB/CIF do portal +
+ // Bombeio da cadencia DAP); 'cadencia' = substitui FOB+CIF+Bombeio inteiros pelos valores PLANEJADOS
+ // da cadencia MIS (ja' separados por frete em loaded.cadencia). Nao ha equivalente de cadencia pra
+ // transferencia, entao fica zerada nesse modo. "Restaurar" volta pro 'auto' porque fresh() so' le
+ // $('entrada').value quando nao vem cenarioForcado — e o botao restaurar chama fresh(record) puro,
+ // que relê o select; o select em si so' muda quando o usuario mexe, entao o reset preserva a escolha
+ // atual do select — por isso o botao "Restaurar" tambem reseta o select pra 'auto' (ver mais abaixo).
+ const entrada=$('entrada')?.value||'auto';
  const startIndex=Math.max(0,Math.round((new Date(today+'T12:00:00')-new Date(D.date+'T12:00:00'))/86400000));
  const switchIndex=Math.max(startIndex,Math.round((new Date(D.bi.inbound.switchDate+'T12:00:00')-new Date(D.date+'T12:00:00'))/86400000));
  const movements=Object.fromEntries(E.rows.map(([k])=>[k,Array(30).fill(0)]));
@@ -22,6 +30,10 @@ function fresh(r,cenarioForcado){
   for(const k of ['sale','fob','cif','pump','transferIn','transferOut']){
    const mis=future&&scenario==='Inbound + MIS'&&i>=switchIndex&&['fob','cif','pump'].includes(k);
    movements[k][i]=(mis?loaded.inboundMis?.[k]:loaded[k])??0;
+  }
+  if(future&&entrada==='cadencia'){
+   movements.fob[i]=loaded.cadencia?.fob??0;movements.cif[i]=loaded.cadencia?.cif??0;
+   movements.pump[i]=loaded.cadencia?.pump??0;movements.transferIn[i]=0;
   }
   // Datas anteriores usam a mesma base em todos os cenarios.
   if(!future)continue;
@@ -39,7 +51,7 @@ function fresh(r,cenarioForcado){
  }
  return {version:1,id:r.id,date:D.date,sourceRevision:D.revision,name:'Minha simulação',opening:r.opening,lastro:r.bi?.days[day(0)]?.scenarios?.[scenario]?.lastro??r.policy?.lastro??null,min:r.policy?.min??null,mid:r.policy?.mid??null,max:r.policy?.max??null,capacity:r.policy?.capacity??null,clamp:false,scenario,switchIndex,movements};
 }
-function key(){return 'nexta-stock-auto-v2:'+D.date+':'+record.id+':'+($('scenario')?.value||'LE');}
+function key(){return 'nexta-stock-auto-v2:'+D.date+':'+record.id+':'+($('scenario')?.value||'LE')+':'+($('entrada')?.value||'auto');}
 function sourceNote(k,i){const loaded=record.bi?.days[day(i)],mode=state.scenario;if(['received','planned','purchase','loanIn','loanOut'].includes(k))return 'Ajuste adicional manual; não repetir um volume já importado.';if(['fob','cif'].includes(k)){const mis=mode==='Inbound + MIS'&&i>=state.switchIndex;return `${mis?'Cadências MIS ('+k.toUpperCase()+')':'CSV do portal, com filtro de status e data de descarga'} · ${fmt((mis?loaded?.inboundMis[k]:loaded?.[k])??0)} m³ · ${day(i)}`;}
  if(k==='sale'){
   const semanaDia=record.bi?.semana?.porDia?.[day(i)];
@@ -192,7 +204,8 @@ $('cidade').onchange=()=>{refreshDepositoOptions();products();};$('deposito').on
 $('grid').oninput=e=>{const input=e.target,k=input.dataset.row;if(!k)return;if(!input.validity.valid||input.value===''||!Number.isFinite(input.valueAsNumber))return;try{E.setMovement(state,k,+input.dataset.day,input.valueAsNumber);}catch(err){message(err.message);input.value=Math.round(state.movements[k][+input.dataset.day]);return;}persist();render();};
 $('grid').addEventListener('focusout',e=>{const input=e.target;if(input.dataset.row)input.value=Math.round(state.movements[input.dataset.row][+input.dataset.day]);});
 $('clamp').onchange=()=>{state.clamp=$('clamp').checked;persist();render();};$('name').onchange=()=>{state.name=$('name').value;persist();};
-$('reset').onclick=()=>{state=structuredClone(baseline);persist();premises();render(true);message('Recorte restaurado aos dados da fonte.');};
+$('reset').onclick=()=>{$('entrada').value='auto';baseline=fresh(record);state=structuredClone(baseline);persist();premises();render(true);message('Recorte restaurado aos dados da fonte (origem da entrada voltou para Fontes automáticas).');};
+$('entrada').onchange=()=>{persist();select();};
 $('reset-tabela').onclick=$('reset').onclick;
 $('save').onclick=()=>download('cenario-estoque-'+D.date+'.json',JSON.stringify(state,null,2),'application/json');
 $('export').onclick=()=>{const result=E.calculate(state,n),csv=[['Data','Tipo','Base','Produto','Abertura m3',...E.rows.map(r=>r[1]),'Fechamento m3']];for(let i=-7;i<n;i++)csv.push([day(i),i<0?'Historico':'Simulacao',record.base,record.product,i<0?history(i)?.opening:result[i].opening,...E.rows.map(([k])=>i<0?history(i)?.[k]:state.movements[k][i]),i<0?null:result[i].close]);download('estoque-'+D.date+'.csv','\uFEFF'+csv.map(row=>row.map(v=>'"'+String(typeof v==='number'?v.toFixed(2).replace('.',','):v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n'),'text/csv;charset=utf-8');};
