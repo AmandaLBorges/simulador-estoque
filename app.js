@@ -68,8 +68,11 @@ function options(el,values){el.replaceChildren(...values.map(v=>new Option(v,v))
 // Cidade+deposito (pedido da usuaria, 2026-10-01: "deixa primeiro sem nenhuma selecao, e filtra cidade
 // e depois o deposito" — antes era um unico select de 'base' com tudo junto, ex. "Betim POTENCIAL").
 // record.policy.city tem a cidade isolada; o deposito e' o resto de record.base depois da cidade.
-function cidadeDe(registro){return registro.policy?.city||'';}
-function depositoDe(registro){const cidade=cidadeDe(registro);return cidade?registro.base.slice(cidade.length).trim():registro.base;}
+// bi.cidade/bi.deposito (cadastro oficial, mesmo de-para de regiao/reprojecao) sao a fonte confiavel;
+// policy.city (coluna da planilha de Politica de Estoques) so' entra de fallback — tem pelo menos 1
+// erro de digitacao conhecido la ("Ribeirão PretoRUFF", sem espaco, 2026-10-01) que criava cidade falsa.
+function cidadeDe(registro){return registro.bi?.cidade||registro.policy?.city||'';}
+function depositoDe(registro){const cidade=cidadeDe(registro);return registro.bi?.deposito||(cidade?registro.base.slice(cidade.length).trim():registro.base);}
 function baseAtual(){const cidade=$('cidade').value,deposito=$('deposito').value;return cidade&&deposito?`${cidade} ${deposito}`:'';}
 function products(){options($('product'),[...new Set(D.records.filter(r=>r.base===baseAtual()).map(r=>r.product))]);select();}
 function select(){record=D.records.find(r=>r.base===baseAtual()&&r.product===$('product').value);
