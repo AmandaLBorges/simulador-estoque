@@ -11,7 +11,10 @@
  const selector=$('scenario');
  selector.parentElement.firstChild.textContent='Cenário de venda';
  options(selector,modes);
- selector.value=state.scenario;
+ // Pedido da usuaria, 2026-10-01: a tela agora abre sem nada selecionado (antes vinha com uma base
+ // padrao fixa), entao "state" pode nao existir ainda nesse ponto — sem a guarda, isso quebrava TODO
+ // o resto do script (botoes de cenario, popup, render/renderEditor sobrescritos) silenciosamente.
+ if(state)selector.value=state.scenario;
  if(D.validationStart){
   $('history-grid').closest('section').hidden=true;
   const period=document.querySelector('.filters input[value]');
@@ -40,7 +43,7 @@
  controls.innerHTML='<span>Puxar vendas de:</span><div id="scenario-buttons" role="group" aria-label="Cenário de venda">'+modes.map(mode=>`<button type="button" data-scenario="${mode}" aria-pressed="false">${mode}</button>`).join('')+'</div>';
  tableSection.querySelector('.section-title').after(controls);
  function syncButtons(){
-  controls.querySelectorAll('button').forEach(button=>{button.setAttribute('aria-pressed',String(button.dataset.scenario===state.scenario));});
+  controls.querySelectorAll('button').forEach(button=>{button.setAttribute('aria-pressed',String(Boolean(state)&&button.dataset.scenario===state.scenario));});
  }
 
  function closePopup(){if(anchor)anchor.removeAttribute('aria-describedby');anchor=null;popup.hidden=true;}
@@ -56,7 +59,8 @@
  render=function(rebuild=false){closePopup();previousRender(rebuild);limparDicaVenda();syncButtons();};
  renderEditor=function(){previousEditor();limparDicaVenda();};
  function choose(mode){
-  if(!modes.includes(mode)||mode===state.scenario)return;
+  if(!modes.includes(mode)||!record){message('Escolha cidade, depósito e produto antes de trocar o cenário.');return;}
+  if(mode===state.scenario)return;
   if(today()>day(n-1)){message('Sem datas disponíveis de hoje em diante. Atualize as fontes para iniciar a simulação.');return;}
   persist();
   selector.value=mode;

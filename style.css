@@ -36,6 +36,13 @@ main{max-width:none;padding-inline:16px}
 #scenario-buttons{display:flex;flex-wrap:wrap;gap:6px}
 #scenario-buttons button{min-height:34px;min-width:0;padding:7px 12px}
 #scenario-buttons button[aria-pressed="true"]{background:#8dc8302b;border-color:#EEFE7A;color:#EEFE7A}
+/* Barra "Cenarios da equipe" (abrir/salvar cenario salvo) — separada dos botoes de cenario de venda. */
+.cloud-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 16px;margin:0 0 12px}
+.cloud-bar>label{flex:1 1 260px;min-width:200px;margin:0}
+.cloud-bar-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.cloud-bar-ghost{background:transparent;border-color:transparent;color:var(--muted);padding:9px 6px}
+.cloud-bar-ghost:hover{border-color:transparent;color:var(--dim);text-decoration:underline}
+.cloud-bar small{flex:1 1 100%;color:var(--dim)}
 #sales-popover{position:fixed;z-index:100;width:min(300px,calc(100vw - 16px));max-height:calc(100dvh - 16px);overflow:auto;padding:16px;background:#272a2d;color:#fff;border:1px solid #92999f;border-radius:6px;box-shadow:0 6px 24px #0006;pointer-events:none;font-size:13px;letter-spacing:0}
 #sales-popover dl{margin:12px 0;border-block:1px solid #52575b;padding:8px 0}
 #sales-popover dl div{display:flex;justify-content:space-between;gap:16px;padding:4px 0}

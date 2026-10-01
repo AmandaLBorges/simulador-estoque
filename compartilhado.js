@@ -2,9 +2,19 @@
 (() => {
   const cloud = window.SIM_CLOUD;
   let currentId = null, expected = null, context = '', busy = false;
+  // Classe propria (ate 2026-10-01 reusava "scenario-controls", a mesma dos botoes de cenario de
+  // venda — colidia com o CSS deles e empilhava os 4 botoes sem hierarquia nenhuma, "muito confuso"
+  // no relato da usuaria). Agrupado: abrir (junto do seletor) · salvar (acao principal) · salvar como
+  // novo (secundaria) · atualizar lista (utilitario discreto).
   const bar = document.createElement('div');
-  bar.className = 'scenario-controls';
-  bar.innerHTML = '<label>Cenários da equipe <select id="cloud-list"><option value="">Selecione um cenário</option></select></label><button id="cloud-refresh">Atualizar lista</button><button id="cloud-open">Abrir cenário</button><button id="cloud-save">Salvar na equipe</button><button id="cloud-copy">Salvar como novo</button><small id="cloud-status" role="status"></small>';
+  bar.className = 'cloud-bar';
+  bar.innerHTML = '<label>Cenários da equipe <select id="cloud-list"><option value="">Selecione um cenário</option></select></label>'
+    + '<div class="cloud-bar-actions">'
+    + '<button id="cloud-open">Abrir cenário</button>'
+    + '<button id="cloud-save" class="primary">Salvar na equipe</button>'
+    + '<button id="cloud-copy">Salvar como novo</button>'
+    + '<button id="cloud-refresh" class="cloud-bar-ghost" title="Recarregar a lista de cenários salvos pela equipe">↺ Atualizar lista</button>'
+    + '</div><small id="cloud-status" role="status"></small>';
   document.querySelector('.filters').after(bar);
   const note = text => { $('cloud-status').textContent = text; };
   // Sem record (filtro de regiao pode zerar a lista de bases), usa uma chave estavel em vez de quebrar.

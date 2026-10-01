@@ -50,11 +50,17 @@ function sourceNote(k,i){const loaded=record.bi?.days[day(i)],mode=state.scenari
 function message(s){$('message').textContent=s;clearTimeout(timer);timer=setTimeout(()=>$('message').textContent='',7000);}
 function persist(){try{state.sourceBaseline=baseline;localStorage.setItem(key(),JSON.stringify(state));$('saved').textContent='SALVO NESTE NAVEGADOR';}catch{$('saved').textContent='SEM SALVAMENTO LOCAL';message('Não foi possível salvar no navegador. Exporte o JSON para guardar suas alterações.');}}
 function options(el,values){el.replaceChildren(...values.map(v=>new Option(v,v)));}
-function products(){options($('product'),[...new Set(D.records.filter(r=>r.base===$('base').value).map(r=>r.product))]);select();}
-function select(){record=D.records.find(r=>r.base===$('base').value&&r.product===$('product').value);
+// Cidade+deposito (pedido da usuaria, 2026-10-01: "deixa primeiro sem nenhuma selecao, e filtra cidade
+// e depois o deposito" — antes era um unico select de 'base' com tudo junto, ex. "Betim POTENCIAL").
+// record.policy.city tem a cidade isolada; o deposito e' o resto de record.base depois da cidade.
+function cidadeDe(registro){return registro.policy?.city||'';}
+function depositoDe(registro){const cidade=cidadeDe(registro);return cidade?registro.base.slice(cidade.length).trim():registro.base;}
+function baseAtual(){const cidade=$('cidade').value,deposito=$('deposito').value;return cidade&&deposito?`${cidade} ${deposito}`:'';}
+function products(){options($('product'),[...new Set(D.records.filter(r=>r.base===baseAtual()).map(r=>r.product))]);select();}
+function select(){record=D.records.find(r=>r.base===baseAtual()&&r.product===$('product').value);
  // Filtro de regiao pode deixar a lista de bases vazia (ex.: nao ha base dessa regiao pra este login);
  // sem guarda, fresh(undefined) quebra o resto do render e trava a tela com os chips desatualizados.
- if(!record){for(const id of ['grid','cards','alerts','chart','semana-progresso'])$(id).innerHTML='';if($('bi-measures'))$('bi-measures').innerHTML='';message('Nenhuma base disponível para este filtro. Ajuste a região ou escolha outra base.');return;}
+ if(!record){for(const id of ['grid','cards','alerts','chart','semana-progresso'])$(id).innerHTML='';if($('bi-measures'))$('bi-measures').innerHTML='';message(baseAtual()?'Nenhuma base disponível para este filtro. Ajuste a região ou escolha outra base.':'Escolha cidade, depósito e produto acima para começar.');return;}
  baseline=fresh(record);state=structuredClone(baseline);try{const saved=localStorage.getItem(key());if(saved){const candidate=E.validate(JSON.parse(saved));if(candidate.id===record.id&&candidate.date===D.date){state=mergeSource(candidate,baseline);}}}catch{message('Cenário local inválido ou indisponível. Abertura original carregada.');}E.rows.find(r=>r[0]==='sale')[1]=({VMD:'Vendas · VMD reprojetada',LE:'Vendas · LE vigente',['Pedidos em tela']:'Vendas · Pedidos em tela',Real:'Vendas · Faturado (Real)',['Disp MIS']:'Vendas · Disp. MIS'})[state.scenario]||'Vendas';premises();render(true);}
 // Politica de estoque (abertura/lastro/minimo/medio/maximo/capacidade): fixa, vem da planilha e nao
 // e' editavel pela simulacao (pedido da usuaria, 2026-09-28) — so os movimentos (entradas/saidas)
@@ -75,12 +81,17 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  const offsets=Array.from({length:n},(_,i)=>i);
  if(rebuild){let html='<thead><tr><th>Movimento / m³</th>'+offsets.map(i=>`<th class="${i<0?'history':i===0?'today':''}">${label(i)}<br><small>${i<0?'Histórico':i===0?'Referência':'Simulação'}</small></th>`).join('')+'</tr></thead><tbody>';
  const outputRow=(key,name)=>`<tr class="total"><th>${name}</th>${offsets.map(i=>`<td data-result="${key}" data-day="${i}"></td>`).join('')}</tr>`;
+ html+=outputRow('opening','Estoque inicial · abertura');html+=outputRow('lastro','Lastro mínimo');html+=outputRow('openingNet','Abertura menos lastro');
  // 4 linhas informativas (so' leitura, nao entram no calculo) mostrando as referencias da venda antes
  // da linha editavel que realmente debita do estoque — pedido da usuaria, 2026-09-30: ver as 4 fontes
  // (VMD reprojetada, LE original sem reprojecao, Pedidos em tela = VA05 total do dia/todos os status,
  // faturamento real) fixas, lado a lado com o que foi aplicado (que o usuario escolhe puxar ou digitar).
  const infoRow=(titulo,getter)=>`<tr class="info-row"><th>↳ ${titulo}</th>${offsets.map(i=>`<td class="history">${i<0?'—':fmt(getter(i))}</td>`).join('')}</tr>`;
+ // Pedido da usuaria, 2026-10-01: "Recebimento adicional manual" e "Programação adicional manual"
+ // tiradas da tabela (ficavam sempre zeradas, so' poluiam a visao). O calculo continua somando o que
+ // ja estiver salvo nesses campos (E.rows/motor.js inalterado); so' nao aparecem mais como linha editavel.
  for(const [k,l,sign] of E.rows){
+  if(['received','planned'].includes(k))continue;
   if(k==='sale'){
    html+=infoRow('VMD reprojetada',i=>record.bi?.days[day(i)]?.vmd);
    html+=infoRow('LE vigente (sem reprojeção)',i=>record.bi?.semana?.porDia?.[day(i)]?.le);
@@ -140,7 +151,7 @@ function chart(result,original,offsets){const W=1200,H=250,L=60,R=20,T=16,B=32;c
  result.forEach((v,i)=>{svg+=`<circle cx="${x(i)}" cy="${y(v.close)}" r="4" fill="${status(v.close)==='danger'?'#FF6B5F':status(v.close)==='warn'?'#F97316':'#EEFE7A'}"><title>${label(i)} · Fechamento: ${fmt(v.close)} m³</title></circle>`;});$('chart').innerHTML=svg+'</svg>';}
 function alerts(result){const items=['O histórico de vendas realizadas não é carregado nesta versão; as vendas futuras usam o LE vigente e, hoje, o maior entre o LE e os pedidos do SAP.',`Valores futuros carregados das fontes (${D.bi.extractedAt.replace('T',' ')}). Portal carregado até ${D.bi.coverage.portal_max.slice(0,10)}; cadências MIS até ${D.bi.coverage.cadencia_max.slice(0,10)}.`];if(parameters.slice(1).some(([k])=>state[k]===null))items.push('A planilha de política tem campos vazios neste recorte; os alertas correspondentes estão indisponíveis.');result.forEach((r,i)=>{const low=Math.min(r.opening,r.close),high=Math.max(r.opening,r.close),a=[];if(low<0)a.push(`déficit físico de ${fmt(-low)} m³`);if(state.lastro!==null&&low<state.lastro)a.push('estoque abaixo do lastro');if(state.min!==null&&low<=state.min)a.push(`no mínimo ou abaixo em ${fmt(state.min-low)} m³`);if(state.capacity!==null&&high>state.capacity)a.push(`capacidade excedida em ${fmt(high-state.capacity)} m³`);else if(state.max!==null&&high>state.max)a.push('acima do estoque máximo');if(a.length)items.push(label(i)+': '+a.join(' • '));});$('alerts').innerHTML=items.map(s=>`<div class="alert">${esc(s)}</div>`).join('');}
 function download(name,text,type){const url=URL.createObjectURL(new Blob([text],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-$('base').onchange=products;$('product').onchange=select;
+$('cidade').onchange=()=>{refreshDepositoOptions();products();};$('deposito').onchange=products;$('product').onchange=select;
 $('grid').oninput=e=>{const input=e.target,k=input.dataset.row;if(!k)return;if(!input.validity.valid||input.value===''||!Number.isFinite(input.valueAsNumber))return;try{E.setMovement(state,k,+input.dataset.day,input.valueAsNumber);}catch(err){message(err.message);input.value=Math.round(state.movements[k][+input.dataset.day]);return;}persist();render();};
 $('grid').addEventListener('focusout',e=>{const input=e.target;if(input.dataset.row)input.value=Math.round(state.movements[input.dataset.row][+input.dataset.day]);});
 $('clamp').onchange=()=>{state.clamp=$('clamp').checked;persist();render();};$('name').onchange=()=>{state.name=$('name').value;persist();};
@@ -148,14 +159,21 @@ $('reset').onclick=()=>{state=structuredClone(baseline);persist();premises();ren
 $('reset-tabela').onclick=$('reset').onclick;
 $('save').onclick=()=>download('cenario-estoque-'+D.date+'.json',JSON.stringify(state,null,2),'application/json');
 $('export').onclick=()=>{const result=E.calculate(state,n),csv=[['Data','Tipo','Base','Produto','Abertura m3',...E.rows.map(r=>r[1]),'Fechamento m3']];for(let i=-7;i<n;i++)csv.push([day(i),i<0?'Historico':'Simulacao',record.base,record.product,i<0?history(i)?.opening:result[i].opening,...E.rows.map(([k])=>i<0?history(i)?.[k]:state.movements[k][i]),i<0?null:result[i].close]);download('estoque-'+D.date+'.csv','\uFEFF'+csv.map(row=>row.map(v=>'"'+String(typeof v==='number'?v.toFixed(2).replace('.',','):v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n'),'text/csv;charset=utf-8');};
-$('import').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>2000000)throw Error('Arquivo maior que 2 MB.');const candidate=E.validate(JSON.parse(await file.text()));const r=D.records.find(r=>r.id===candidate.id);if(!r||candidate.date!==D.date)throw Error('O cenário precisa corresponder à data e ao recorte deste snapshot.');$('base').value=r.base;products();$('product').value=r.product;select();state=candidate;persist();premises();render(true);message('Cenário importado.');}catch(err){message(err.message);}e.target.value='';};
+$('import').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>2000000)throw Error('Arquivo maior que 2 MB.');const candidate=E.validate(JSON.parse(await file.text()));const r=D.records.find(r=>r.id===candidate.id);if(!r||candidate.date!==D.date)throw Error('O cenário precisa corresponder à data e ao recorte deste snapshot.');$('cidade').value=cidadeDe(r);refreshDepositoOptions();$('deposito').value=depositoDe(r);products();$('product').value=r.product;select();state=candidate;persist();premises();render(true);message('Cenário importado.');}catch(err){message(err.message);}e.target.value='';};
 // Filtro de regiao (SP/MG+RJ/Centro-Oeste): so aparece quando ha SIM_CLOUD.regionOf (versao hospedada
 // com Firebase); no modo local (sem login) nao ha regiao cadastrada, entao o campo fica escondido.
 function basesPermitidas(){const todas=[...new Set(D.records.map(r=>r.base))];const regiao=$('regiao-filtro')?.value;return regiao&&window.SIM_CLOUD?.regionOf?todas.filter(b=>window.SIM_CLOUD.regionOf(b)===regiao):todas;}
-function refreshBaseOptions(){options($('base'),basesPermitidas().sort((a,b)=>a.localeCompare(b,'pt-BR')));if(typeof renderChips==='function')renderChips();}
+// Cidade primeiro, depois deposito (dentro da cidade escolhida) — os dois sempre comecam com uma opcao
+// vazia "Selecione...", pra tela nao abrir com nada pre-selecionado.
+function cidadesPermitidas(){const permitidas=new Set(basesPermitidas());return [...new Set(D.records.filter(r=>permitidas.has(r.base)).map(cidadeDe))].sort((a,b)=>a.localeCompare(b,'pt-BR'));}
+function depositosPermitidos(cidade){const permitidas=new Set(basesPermitidas());return [...new Set(D.records.filter(r=>permitidas.has(r.base)&&cidadeDe(r)===cidade).map(depositoDe))].sort((a,b)=>a.localeCompare(b,'pt-BR'));}
+function refreshBaseOptions(){const cidadeAnterior=$('cidade').value;options($('cidade'),['',...cidadesPermitidas()]);$('cidade').options[0].textContent='Selecione a cidade';if([...$('cidade').options].some(o=>o.value===cidadeAnterior))$('cidade').value=cidadeAnterior;refreshDepositoOptions();}
+function refreshDepositoOptions(){const depositoAnterior=$('deposito').value,cidade=$('cidade').value;options($('deposito'),cidade?['',...depositosPermitidos(cidade)]:['']);$('deposito').options[0].textContent='Selecione o depósito';if([...$('deposito').options].some(o=>o.value===depositoAnterior))$('deposito').value=depositoAnterior;if(typeof renderChips==='function')renderChips();}
 // So aparece pra quem enxerga mais de uma regiao (administrador/leitura); regional ja so ve a propria
 // regiao, entao filtrar por outra sempre daria lista vazia.
 const perfilVeTudo=window.SIM_AUTH?.profile?.admin===true||window.SIM_AUTH?.profile?.perfil==='leitura';
 if(perfilVeTudo)$('regiao-filtro-label').hidden=false;
 $('regiao-filtro')?.addEventListener('change',()=>{refreshBaseOptions();products();});
-refreshBaseOptions();const preferred=D.records.find(r=>r.base.includes('Duque')&&r.product==='Gasolina A');if(preferred)$('base').value=preferred.base;products();if(preferred){$('product').value=preferred.product;select();}$('date').value=D.date;
+// Pedido da usuaria, 2026-10-01: nada pre-selecionado ao abrir (antes tinha um default fixo em
+// "Duque de Caxias" + "Gasolina A", resquicio de teste que nunca devia ter ficado).
+refreshBaseOptions();options($('product'),[]);select();$('date').value=D.date;

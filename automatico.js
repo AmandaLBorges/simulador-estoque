@@ -11,8 +11,8 @@ async function updateSources(){
   const info=payload.status;
   $('auto-status').textContent=info.error|| (info.running?'Atualizando as fontes automaticamente…':`Atualização automática ativa · última leitura ${info.lastSuccess||D.bi.extractedAt} · intervalo de 5 minutos.`);
   if(payload.data.revision!==D.revision && !document.activeElement.matches('input,select')){
-   persist();const base=$('base').value,product=$('product').value;D=payload.data;window.ESTOQUE_DATA=D;
-   refreshBaseOptions();if([...$('base').options].some(o=>o.value===base))$('base').value=base;products();if([...$('product').options].some(o=>o.value===product)){$('product').value=product;select();}
+   persist();const cidade=$('cidade').value,deposito=$('deposito').value,product=$('product').value;D=payload.data;window.ESTOQUE_DATA=D;
+   refreshBaseOptions();if([...$('cidade').options].some(o=>o.value===cidade))$('cidade').value=cidade;refreshDepositoOptions();if([...$('deposito').options].some(o=>o.value===deposito))$('deposito').value=deposito;products();if([...$('product').options].some(o=>o.value===product)){$('product').value=product;select();}
    $('date').value=D.date;describeScenario();message('Fontes atualizadas. Alterações da simulação preservadas para esta referência.');
   }
  }catch{$('auto-status').textContent='Conexão com a atualização local indisponível. Últimos dados carregados preservados.';}

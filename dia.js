@@ -13,7 +13,9 @@
 
   function abrirCenario(base, produto, cenario) {
     view.hidden = true;
-    $('base').value = base; products();
+    const registro = D.records.find(r => r.base === base);
+    if (registro) { $('cidade').value = cidadeDe(registro); refreshDepositoOptions(); $('deposito').value = depositoDe(registro); }
+    products();
     if ([...$('product').options].some(o => o.value === produto)) $('product').value = produto;
     $('scenario').value = cenario; select();
   }
