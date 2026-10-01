@@ -37,4 +37,7 @@ $('daily-editor').addEventListener('focusout',e=>{const input=e.target,k=input.d
 $('repeat-day').onclick=()=>{const candidate=structuredClone(state);for(const [k]of E.rows)for(let i=editDay+1;i<n;i++)candidate.movements[k][i]=state.movements[k][editDay];state=candidate;persist();render(true);message('Movimentos repetidos nos dias seguintes da simulação.');};
 $('grid').addEventListener('input',()=>{renderEditor();});
 $('premises').addEventListener('change',()=>renderEditor());
-render(true);
+// Pedido da usuaria, 2026-10-01: tela abre sem nada selecionado (antes vinha com uma base padrao fixa),
+// entao pode nao ter "record" ainda neste ponto — sem a guarda, render(true) quebrava em E.calculate
+// (state undefined) assim que editor.js carregava, antes de qualquer selecao do usuario.
+if(record)render(true);
