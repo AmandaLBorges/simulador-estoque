@@ -73,7 +73,11 @@ function options(el,values){el.replaceChildren(...values.map(v=>new Option(v,v))
 // erro de digitacao conhecido la ("Ribeirão PretoRUFF", sem espaco, 2026-10-01) que criava cidade falsa.
 function cidadeDe(registro){return registro.bi?.cidade||registro.policy?.city||'';}
 function depositoDe(registro){const cidade=cidadeDe(registro);return registro.bi?.deposito||(cidade?registro.base.slice(cidade.length).trim():registro.base);}
-function baseAtual(){const cidade=$('cidade').value,deposito=$('deposito').value;return cidade&&deposito?`${cidade} ${deposito}`:'';}
+// Busca o registro batendo cidade+deposito (via cidadeDe/depositoDe, nao reconstroi a string) e devolve
+// o r.base REAL — bug encontrado em 2026-10-02: reconstruir "${cidade} ${deposito}" na mao e comparar
+// com r.base quebrava quando o deposito do cadastro tem capitalizacao diferente do nome da base (ex.:
+// cadastro guarda "NEXTA", mas r.base e' "Barra do Garças Nexta" — nunca batia, ficava sem produto).
+function baseAtual(){const cidade=$('cidade').value,deposito=$('deposito').value;if(!cidade||!deposito)return'';return D.records.find(r=>cidadeDe(r)===cidade&&depositoDe(r)===deposito)?.base||'';}
 function products(){options($('product'),[...new Set(D.records.filter(r=>r.base===baseAtual()).map(r=>r.product))]);select();}
 function select(){record=D.records.find(r=>r.base===baseAtual()&&r.product===$('product').value);
  // Filtro de regiao pode deixar a lista de bases vazia (ex.: nao ha base dessa regiao pra este login);
