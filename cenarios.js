@@ -107,23 +107,37 @@
  controls.addEventListener('click',event=>{const button=event.target.closest('[data-scenario]');if(button)choose(button.dataset.scenario);});
  selector.onchange=()=>choose(selector.value);
 
- function showPopup(input){
-  closePopup();anchor=input;
-  const index=input.dataset.day===undefined?editDay:Number(input.dataset.day);
+ function conteudoPopupVendas(index){
   const loaded=record.bi?.days[day(index)];
   // semana.porDia vem da reprojecao (reprojecao_vmd.py): 'le' e' a meta ORIGINAL antes de reprojetar
   // (diferente de loaded.vmd, que ja' e' o valor reprojetado) e 'real' e' o faturamento MySQL do dia
   // (diferente de loaded.billing, que e' volume de PEDIDO do VA05, nao faturamento).
   const semanaDia=record.bi?.semana?.porDia?.[day(index)];
   const values=[['VMD',loaded?.vmd],['LE vigente',semanaDia?.le],['Pedidos em tela',loaded?.billing],['Vendas reais',semanaDia?.real]];
-  popup.innerHTML=`<strong>Vendas · ${dateLabel(day(index))}</strong><dl>${values.map(([name,value])=>`<div><dt>${name}</dt><dd>${value==null?'Sem dado':fmt(value)+' m³'}</dd></div>`).join('')}</dl><p>${day(index)<today()?'Anterior à simulação':`Cenário: <strong>${esc(state.scenario)}</strong>`}</p><p>Aplicado: <strong>${fmt(state.movements.sale[index])} m³</strong>${state.movements.sale[index]!==baseline.movements.sale[index]?' · editado':''}</p>${state.scenario==='Real'&&day(index)>D.bi.extractedAt.slice(0,10)?'<p>Valor aplicado com projeção futura.</p>':''}`;
+  return `<strong>Vendas · ${dateLabel(day(index))}</strong><dl>${values.map(([name,value])=>`<div><dt>${name}</dt><dd>${value==null?'Sem dado':fmt(value)+' m³'}</dd></div>`).join('')}</dl><p>${day(index)<today()?'Anterior à simulação':`Cenário: <strong>${esc(state.scenario)}</strong>`}</p><p>Aplicado: <strong>${fmt(state.movements.sale[index])} m³</strong>${state.movements.sale[index]!==baseline.movements.sale[index]?' · editado':''}</p>${state.scenario==='Real'&&day(index)>D.bi.extractedAt.slice(0,10)?'<p>Valor aplicado com projeção futura.</p>':''}`;
+ }
+ // Popup "quem esta' trazendo esse volume" no Transito FOB — pedido da usuaria, 2026-10-02: "no popup
+ // vc nao iria subir pra gente as informacoes da placa, ETA, transportadora?". So' FOB tem essa info
+ // (CIF o fornecedor contrata o transporte, a gente nao sabe quem e' — "cif deixa quieto"). Dado vem
+ // de D.transitoAoVivo (publicar_transito_ao_vivo.py), ja' trazido junto do resto da carga.
+ function conteudoPopupFob(index){
+  const vivo=D.transitoAoVivo?.[record.bi?.emp_dep]?.[record.bi?.material]?.[day(index)];
+  const viagens=(vivo?.viagens||[]).filter(v=>v.modal==='fob');
+  if(!viagens.length)return `<strong>Trânsito FOB · ${dateLabel(day(index))}</strong><p>Sem detalhe de viagem ao vivo pra este dia.</p>`;
+  const linha=v=>`<div><dt>${esc(v.transportador||'Transportador não informado')}${v.placa?' · '+esc(v.placa):''}</dt><dd>${fmt(v.volume)} m³${v.status?' · '+esc(v.status):''}${v.chegadaReal?' · chegou '+new Date(v.chegadaReal).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):v.eta?' · ETA '+new Date(v.eta).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</dd></div>`;
+  return `<strong>Trânsito FOB · ${dateLabel(day(index))}</strong><dl>${viagens.map(linha).join('')}</dl><p>${viagens.length} viagem(ns) · total ${fmt(viagens.reduce((s,v)=>s+v.volume,0))} m³</p>`;
+ }
+ function showPopup(input){
+  closePopup();anchor=input;
+  const index=input.dataset.day===undefined?editDay:Number(input.dataset.day);
+  popup.innerHTML=input.dataset.row==='fob'?conteudoPopupFob(index):conteudoPopupVendas(index);
   input.setAttribute('aria-describedby','sales-popover');
   popup.hidden=false;
   const rect=input.getBoundingClientRect(),width=popup.offsetWidth,height=popup.offsetHeight;
   popup.style.left=Math.max(8,Math.min(rect.left,innerWidth-width-8))+'px';
   popup.style.top=Math.max(8,rect.bottom+height+8<=innerHeight?rect.bottom+8:rect.top-height-8)+'px';
  }
- const salesInput=target=>target instanceof Element?(target.closest('[data-row="sale"], [data-edit-key="sale"]')||target.closest('td, label')?.querySelector('[data-row="sale"], [data-edit-key="sale"]')):null;
+ const salesInput=target=>target instanceof Element?(target.closest('[data-row="sale"], [data-row="fob"], [data-edit-key="sale"]')||target.closest('td, label')?.querySelector('[data-row="sale"], [data-row="fob"], [data-edit-key="sale"]')):null;
  document.addEventListener('pointerover',event=>{const input=salesInput(event.target);if(input)showPopup(input);});
  document.addEventListener('focusin',event=>{const input=salesInput(event.target);if(input){requestAnimationFrame(()=>{if(document.activeElement===input)showPopup(input);});}else closePopup();});
  document.addEventListener('pointerout',event=>{if(salesInput(event.target)&&document.activeElement!==event.target)closePopup();});
