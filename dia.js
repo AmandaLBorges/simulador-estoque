@@ -14,7 +14,7 @@
   function abrirCenario(base, produto, cenario) {
     view.hidden = true;
     const registro = D.records.find(r => r.base === base);
-    if (registro) { $('cidade').value = cidadeDe(registro); refreshDepositoOptions(); $('deposito').value = depositoDe(registro); }
+    if (registro) { $('cidade').value = cidadeDe(registro); refreshDepositoOptions(); $('deposito').value = depositoDe(registro); refreshEmpresaOptions(); $('empresa').value = empresaDe(registro); }
     products();
     if ([...$('product').options].some(o => o.value === produto)) $('product').value = produto;
     $('scenario').value = cenario; select();
@@ -198,6 +198,18 @@
     if (ind.primeiraRuptura) partes.push(`ruptura a partir de ${new Date(ind.primeiraRuptura + 'T12:00:00').toLocaleDateString('pt-BR')}`);
     return partes.join(' · ');
   }
+  // Urgencia (pedido da usuaria, 2026-10-02: "quanto mais proximo de termos ruptura e maior for o
+  // volume dessa ruptura" — usado pra ranquear o TOP 10, porque 87 criticos de uma vez "fica confuso
+  // pra diretores e gerentes tomarem acao"). Deficit (m³ negativos) dividido pelos dias ate' a ruptura
+  // — deficit grande chegando logo pesa mais que deficit grande daqui a 2 semanas.
+  function urgencia(it) {
+    const ind = it.indicadores;
+    if (ind.situacao === 'ok') return -Infinity;
+    const diaRuptura = ind.primeiraRuptura || ind.diaMenorEstoque;
+    const diasAte = diaRuptura ? Math.max(0, Math.round((new Date(diaRuptura + 'T12:00:00') - new Date(D.date + 'T12:00:00')) / 86400000)) : 14;
+    const deficit = Math.max(0, -ind.menorEstoque);
+    return deficit / (diasAte + 1);
+  }
 
   async function renderSemana() {
     const minha = ++geracaoSemana;
@@ -212,7 +224,7 @@
     itens = itens.filter(it => (!regiao || cloud.regionOf(it.base) === regiao)
       && (!base || it.base.toLowerCase().includes(base))
       && (!situacao || it.indicadores.situacao === situacao));
-    itens.sort((a, b) => peso[a.indicadores.situacao] - peso[b.indicadores.situacao] || a.base.localeCompare(b.base));
+    itens.sort((a, b) => peso[a.indicadores.situacao] - peso[b.indicadores.situacao] || urgencia(b) - urgencia(a) || a.base.localeCompare(b.base));
     const semanaNum = numeroSemanaISO(segunda);
     const periodo = `${new Date(dias[0] + 'T12:00:00').toLocaleDateString('pt-BR')} a ${new Date(dias[6] + 'T12:00:00').toLocaleDateString('pt-BR')}`;
     if (!itens.length) {
@@ -221,20 +233,26 @@
     }
     const resumo = itens.reduce((c, it) => ({...c, [it.indicadores.situacao]: (c[it.indicadores.situacao] || 0) + 1}), {});
     const salvos = itens.filter(it => it.salvo).length;
-    statusSemana.textContent = `Semana ${semanaNum} (${periodo}) · ${itens.length} base(s) — `
+    // So' os 10 piores casos entram na lista (pedido da usuaria, 2026-10-02: "fica confusa pra
+    // diretores e gerentes tomarem ação" com os 87 criticos de uma vez) — ranqueados por urgencia()
+    // (deficit x proximidade da ruptura), dentro da ordem critico > atencao > ok ja aplicada acima.
+    // O status e a barra continuam mostrando a CONTAGEM TOTAL (contexto), so' a lista fica curta.
+    const top10 = itens.slice(0, 10);
+    statusSemana.textContent = `Semana ${semanaNum} (${periodo}) · ${itens.length} base(s) no total — `
       + `${resumo.critico || 0} crítica(s) · ${resumo.atencao || 0} em atenção · ${resumo.ok || 0} ok `
-      + `· ${salvos} salva(s) pela equipe, ${itens.length - salvos} calculada(s) agora pelo LE padrão.`;
+      + `· ${salvos} salva(s) pela equipe, ${itens.length - salvos} calculada(s) agora pelo LE padrão. `
+      + `Mostrando os 10 piores casos (mais urgentes), de ${itens.length}.`;
     barra.innerHTML = ['critico', 'atencao', 'ok'].filter(s => resumo[s]).map(s =>
       `<span class="${s}" style="flex:${resumo[s]}">${resumo[s]}</span>`).join('');
-    // Resumo executivo em texto (pedido da usuaria, 2026-10-01: "consolidar em formato de texto, com
-    // as principais causas, pra diretoria bater o olho") — so' os criticos, no topo da aba, antes dos
-    // cards. Limitado a 8 pra nao virar uma parede de texto; o resto continua nos cards abaixo.
-    const criticos = itens.filter(it => it.indicadores.situacao === 'critico');
+    // Resumo executivo em texto (pedido da usuaria: "consolidar em formato de texto, com as principais
+    // causas, pra diretoria bater o olho") — os mesmos top 10 que aparecem nos cards abaixo, nao mais
+    // so' os criticos truncados em 8; agora resumo e cards mostram exatamente a mesma lista.
     const resumoEl = $('semana-resumo');
-    resumoEl.innerHTML = !criticos.length ? '' : `<p><strong>${criticos.length} base(s) crítica(s) esta semana:</strong></p><ul>`
-      + criticos.slice(0, 8).map(it => `<li><strong>${esc(it.base)}</strong> (${esc(it.produto)}) — ${esc(causaTexto(it))}</li>`).join('')
-      + (criticos.length > 8 ? `<li><em>+ ${criticos.length - 8} outra(s) crítica(s) na lista abaixo.</em></li>` : '') + '</ul>';
-    lista.innerHTML = itens.map(it => `<div class="card dia-${it.indicadores.situacao}">
+    const piores = top10.filter(it => it.indicadores.situacao !== 'ok');
+    resumoEl.innerHTML = !piores.length ? '' : `<p><strong>Top ${piores.length} caso(s) mais urgente(s) esta semana` +
+      `${itens.length > piores.length ? ` (de ${resumo.critico || 0} crítica(s) + ${resumo.atencao || 0} em atenção)` : ''}:</strong></p><ul>`
+      + piores.map(it => `<li><strong>${esc(it.base)}</strong> (${esc(it.produto)}) — ${esc(causaTexto(it))}</li>`).join('') + '</ul>';
+    lista.innerHTML = top10.map(it => `<div class="card dia-${it.indicadores.situacao}">
       <h3>${esc(it.base)}</h3>
       <small>${esc(it.deposito || '—')} · ${esc(it.produto)} · ${esc(it.cenario)}</small>
       <p><strong>${rotuloSituacao[it.indicadores.situacao]}</strong> — ${esc(causaTexto(it) || `menor estoque ${fmt(it.indicadores.menorEstoque)} m³`)}</p>

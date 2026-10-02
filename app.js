@@ -73,11 +73,15 @@ function options(el,values){el.replaceChildren(...values.map(v=>new Option(v,v))
 // erro de digitacao conhecido la ("Ribeirão PretoRUFF", sem espaco, 2026-10-01) que criava cidade falsa.
 function cidadeDe(registro){return registro.bi?.cidade||registro.policy?.city||'';}
 function depositoDe(registro){const cidade=cidadeDe(registro);return registro.bi?.deposito||(cidade?registro.base.slice(cidade.length).trim():registro.base);}
-// Busca o registro batendo cidade+deposito (via cidadeDe/depositoDe, nao reconstroi a string) e devolve
-// o r.base REAL — bug encontrado em 2026-10-02: reconstruir "${cidade} ${deposito}" na mao e comparar
-// com r.base quebrava quando o deposito do cadastro tem capitalizacao diferente do nome da base (ex.:
-// cadastro guarda "NEXTA", mas r.base e' "Barra do Garças Nexta" — nunca batia, ficava sem produto).
-function baseAtual(){const cidade=$('cidade').value,deposito=$('deposito').value;if(!cidade||!deposito)return'';return D.records.find(r=>cidadeDe(r)===cidade&&depositoDe(r)===deposito)?.base||'';}
+function empresaDe(registro){return registro.bi?.empresa||'';}
+// Busca o registro batendo cidade+deposito+empresa (via cidadeDe/depositoDe/empresaDe, nao reconstroi a
+// string) e devolve o r.base REAL. Bug encontrado em 2026-10-02, 2 camadas: (1) reconstruir
+// "${cidade} ${deposito}" na mao e comparar com r.base quebrava quando o deposito do cadastro tem
+// capitalizacao diferente do nome da base (ex.: cadastro guarda "NEXTA", mas r.base e' "Barra do
+// Garças Nexta"); (2) mesmo so' com cidade+deposito, existem 7 combinacoes REAIS ambiguas no cadastro
+// (ex.: "Betim"+"POTENCIAL" tem 3 bases diferentes — CHARRUA/Nexta/SIM, que so' se distinguem pela
+// Empresa) — por isso o 3o filtro de Empresa.
+function baseAtual(){const cidade=$('cidade').value,deposito=$('deposito').value,empresa=$('empresa').value;if(!cidade||!deposito||!empresa)return'';return D.records.find(r=>cidadeDe(r)===cidade&&depositoDe(r)===deposito&&empresaDe(r)===empresa)?.base||'';}
 function products(){options($('product'),[...new Set(D.records.filter(r=>r.base===baseAtual()).map(r=>r.product))]);select();}
 function select(){record=D.records.find(r=>r.base===baseAtual()&&r.product===$('product').value);
  // Filtro de regiao pode deixar a lista de bases vazia (ex.: nao ha base dessa regiao pra este login);
@@ -207,7 +211,7 @@ document.addEventListener('pointerdown',e=>{const el=e.target.closest('[data-cha
 document.addEventListener('pointerout',e=>{if(e.target.closest('[data-chart-day]')&&document.activeElement!==e.target)fecharPopupGrafico();});
 function alerts(result){const items=['O histórico de vendas realizadas não é carregado nesta versão; as vendas futuras usam o LE vigente e, hoje, o maior entre o LE e os pedidos do SAP.',`Valores futuros carregados das fontes (${D.bi.extractedAt.replace('T',' ')}). Portal carregado até ${D.bi.coverage.portal_max.slice(0,10)}; cadências MIS até ${D.bi.coverage.cadencia_max.slice(0,10)}.`];if(parameters.slice(1).some(([k])=>state[k]===null))items.push('A planilha de política tem campos vazios neste recorte; os alertas correspondentes estão indisponíveis.');result.forEach((r,i)=>{const low=Math.min(r.opening,r.close),high=Math.max(r.opening,r.close),a=[];if(low<0)a.push(`déficit físico de ${fmt(-low)} m³`);if(state.lastro!==null&&low<state.lastro)a.push('estoque abaixo do lastro');if(state.min!==null&&low<=state.min)a.push(`no mínimo ou abaixo em ${fmt(state.min-low)} m³`);if(state.capacity!==null&&high>state.capacity)a.push(`capacidade excedida em ${fmt(high-state.capacity)} m³`);else if(state.max!==null&&high>state.max)a.push('acima do estoque máximo');if(a.length)items.push(label(i)+': '+a.join(' • '));});$('alerts').innerHTML=items.map(s=>`<div class="alert">${esc(s)}</div>`).join('');}
 function download(name,text,type){const url=URL.createObjectURL(new Blob([text],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-$('cidade').onchange=()=>{refreshDepositoOptions();products();};$('deposito').onchange=products;$('product').onchange=select;
+$('cidade').onchange=()=>{refreshDepositoOptions();products();};$('deposito').onchange=()=>{refreshEmpresaOptions();products();};$('empresa').onchange=products;$('product').onchange=select;
 $('grid').oninput=e=>{const input=e.target,k=input.dataset.row;if(!k)return;if(!input.validity.valid||input.value===''||!Number.isFinite(input.valueAsNumber))return;try{E.setMovement(state,k,+input.dataset.day,input.valueAsNumber);}catch(err){message(err.message);input.value=Math.round(state.movements[k][+input.dataset.day]);return;}persist();render();};
 $('grid').addEventListener('focusout',e=>{const input=e.target;if(input.dataset.row)input.value=Math.round(state.movements[input.dataset.row][+input.dataset.day]);});
 $('clamp').onchange=()=>{state.clamp=$('clamp').checked;persist();render();};$('name').onchange=()=>{state.name=$('name').value;persist();};
@@ -216,7 +220,7 @@ $('entrada').onchange=()=>{persist();select();};
 $('reset-tabela').onclick=$('reset').onclick;
 $('save').onclick=()=>download('cenario-estoque-'+D.date+'.json',JSON.stringify(state,null,2),'application/json');
 $('export').onclick=()=>{const result=E.calculate(state,n),csv=[['Data','Tipo','Base','Produto','Abertura m3',...E.rows.map(r=>r[1]),'Fechamento m3']];for(let i=-7;i<n;i++)csv.push([day(i),i<0?'Historico':'Simulacao',record.base,record.product,i<0?history(i)?.opening:result[i].opening,...E.rows.map(([k])=>i<0?history(i)?.[k]:state.movements[k][i]),i<0?null:result[i].close]);download('estoque-'+D.date+'.csv','\uFEFF'+csv.map(row=>row.map(v=>'"'+String(typeof v==='number'?v.toFixed(2).replace('.',','):v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n'),'text/csv;charset=utf-8');};
-$('import').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>2000000)throw Error('Arquivo maior que 2 MB.');const candidate=E.validate(JSON.parse(await file.text()));const r=D.records.find(r=>r.id===candidate.id);if(!r||candidate.date!==D.date)throw Error('O cenário precisa corresponder à data e ao recorte deste snapshot.');$('cidade').value=cidadeDe(r);refreshDepositoOptions();$('deposito').value=depositoDe(r);products();$('product').value=r.product;select();state=candidate;persist();premises();render(true);message('Cenário importado.');}catch(err){message(err.message);}e.target.value='';};
+$('import').onchange=async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>2000000)throw Error('Arquivo maior que 2 MB.');const candidate=E.validate(JSON.parse(await file.text()));const r=D.records.find(r=>r.id===candidate.id);if(!r||candidate.date!==D.date)throw Error('O cenário precisa corresponder à data e ao recorte deste snapshot.');$('cidade').value=cidadeDe(r);refreshDepositoOptions();$('deposito').value=depositoDe(r);refreshEmpresaOptions();$('empresa').value=empresaDe(r);products();$('product').value=r.product;select();state=candidate;persist();premises();render(true);message('Cenário importado.');}catch(err){message(err.message);}e.target.value='';};
 // Filtro de regiao (SP/MG+RJ/Centro-Oeste): so aparece quando ha SIM_CLOUD.regionOf (versao hospedada
 // com Firebase); no modo local (sem login) nao ha regiao cadastrada, entao o campo fica escondido.
 function basesPermitidas(){const todas=[...new Set(D.records.map(r=>r.base))];const regiao=$('regiao-filtro')?.value;return regiao&&window.SIM_CLOUD?.regionOf?todas.filter(b=>window.SIM_CLOUD.regionOf(b)===regiao):todas;}
@@ -224,8 +228,12 @@ function basesPermitidas(){const todas=[...new Set(D.records.map(r=>r.base))];co
 // vazia "Selecione...", pra tela nao abrir com nada pre-selecionado.
 function cidadesPermitidas(){const permitidas=new Set(basesPermitidas());return [...new Set(D.records.filter(r=>permitidas.has(r.base)).map(cidadeDe))].sort((a,b)=>a.localeCompare(b,'pt-BR'));}
 function depositosPermitidos(cidade){const permitidas=new Set(basesPermitidas());return [...new Set(D.records.filter(r=>permitidas.has(r.base)&&cidadeDe(r)===cidade).map(depositoDe))].sort((a,b)=>a.localeCompare(b,'pt-BR'));}
+// Empresa (3o nivel — pedido da usuaria, 2026-10-02): cidade+deposito sozinhos nao sao unicos, existem
+// 7 combinacoes reais ambiguas no cadastro (ex.: Betim+POTENCIAL tem 3 bases: CHARRUA/Nexta/SIM).
+function empresasPermitidas(cidade,deposito){const permitidas=new Set(basesPermitidas());return [...new Set(D.records.filter(r=>permitidas.has(r.base)&&cidadeDe(r)===cidade&&depositoDe(r)===deposito).map(empresaDe))].sort((a,b)=>a.localeCompare(b,'pt-BR'));}
 function refreshBaseOptions(){const cidadeAnterior=$('cidade').value;options($('cidade'),['',...cidadesPermitidas()]);$('cidade').options[0].textContent='Selecione a cidade';if([...$('cidade').options].some(o=>o.value===cidadeAnterior))$('cidade').value=cidadeAnterior;refreshDepositoOptions();}
-function refreshDepositoOptions(){const depositoAnterior=$('deposito').value,cidade=$('cidade').value;options($('deposito'),cidade?['',...depositosPermitidos(cidade)]:['']);$('deposito').options[0].textContent='Selecione o depósito';if([...$('deposito').options].some(o=>o.value===depositoAnterior))$('deposito').value=depositoAnterior;if(typeof renderChips==='function')renderChips();}
+function refreshDepositoOptions(){const depositoAnterior=$('deposito').value,cidade=$('cidade').value;options($('deposito'),cidade?['',...depositosPermitidos(cidade)]:['']);$('deposito').options[0].textContent='Selecione o depósito';if([...$('deposito').options].some(o=>o.value===depositoAnterior))$('deposito').value=depositoAnterior;refreshEmpresaOptions();}
+function refreshEmpresaOptions(){const empresaAnterior=$('empresa').value,cidade=$('cidade').value,deposito=$('deposito').value;options($('empresa'),cidade&&deposito?['',...empresasPermitidas(cidade,deposito)]:['']);$('empresa').options[0].textContent='Selecione a empresa';if([...$('empresa').options].some(o=>o.value===empresaAnterior))$('empresa').value=empresaAnterior;if(typeof renderChips==='function')renderChips();}
 // So aparece pra quem enxerga mais de uma regiao (administrador/leitura); regional ja so ve a propria
 // regiao, entao filtrar por outra sempre daria lista vazia.
 const perfilVeTudo=window.SIM_AUTH?.profile?.admin===true||window.SIM_AUTH?.profile?.perfil==='leitura';
