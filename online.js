@@ -58,8 +58,8 @@ onAuthStateChanged(auth, async user => {
     const visibleRegions = profile.admin === true || profile.perfil === 'leitura'
       ? ['SP', 'MG_RJ', 'CO'] : [profile.regiao];
     if (!visibleRegions[0]) throw new Error('Sua conta não tem região definida. Peça a liberação ao administrador.');
-    const [metaSnapshot, regions, ...regionSnapshots] = await Promise.all([
-      get(ref(db, 'fontes/atual/meta')), get(ref(db, 'cadastros/regioes')),
+    const [metaSnapshot, regions, transitoSnapshot, ...regionSnapshots] = await Promise.all([
+      get(ref(db, 'fontes/atual/meta')), get(ref(db, 'cadastros/regioes')), get(ref(db, 'transitoAoVivo')),
       ...visibleRegions.map(name => get(ref(db, `fontes/atual/regioes/${name}`))),
     ]);
     const envelope = metaSnapshot.val();
@@ -67,6 +67,11 @@ onAuthStateChanged(auth, async user => {
     const data = JSON.parse(envelope.conteudo);
     data.records = [];
     data.history = {};
+    // Transito FOB/CIF ao vivo (pedido da usuaria, 2026-10-02): publicado a parte, fora do ciclo de
+    // 30 min do snapshot principal, por publicar_transito_ao_vivo.py (le direto o Firebase do portal
+    // inbound). So' fica tao "ao vivo" quanto o recarregamento da pagina — mesmo nivel do resto da
+    // tela, que ja' nao se atualiza sozinha dentro da mesma aba ("Recarregue a pagina...").
+    data.transitoAoVivo = transitoSnapshot.val()?.porBase || null;
     for (const snap of regionSnapshots) {
       const part = snap.val();
       if (!part) continue;

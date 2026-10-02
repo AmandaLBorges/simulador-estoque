@@ -26,7 +26,9 @@
     document.querySelectorAll('[data-row], [data-param], [data-edit-key], #name').forEach(input => {
       input.disabled = !allowed;
     });
-    for (const id of ['reset', 'import', 'repeat-day', 'cloud-save']) {
+    // 'reset' e 'import' (botoes do topo) foram tirados da tela em 2026-10-02 — 'reset-tabela' (↺
+    // Restaurar, junto da tabela) e' quem faz a restauracao agora; 'import' nao tem mais substituto.
+    for (const id of ['reset-tabela', 'repeat-day', 'cloud-save']) {
       $(id).disabled = !allowed || busy;
     }
     if (context !== identity()) {

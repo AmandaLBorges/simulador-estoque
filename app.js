@@ -35,6 +35,14 @@ function fresh(r,cenarioForcado){
    movements.fob[i]=loaded.cadencia?.fob??0;movements.cif[i]=loaded.cadencia?.cif??0;
    movements.pump[i]=loaded.cadencia?.pump??0;movements.transferIn[i]=0;
   }
+  // Transito ao vivo (pedido da usuaria, 2026-10-02): publicar_transito_ao_vivo.py le o Firebase do
+  // portal inbound direto (nao o CSV de 30 em 30 min) e publica em D.transitoAoVivo, por emp_dep e
+  // material. So' sobrescreve quando 'auto' (nao em 'cadencia', que ja' e' uma fonte explicita
+  // diferente) e fora do cenario 'Inbound + MIS' (que tem sua propria fonte de FOB/CIF, loaded.inboundMis).
+  if(future&&entrada==='auto'&&scenario!=='Inbound + MIS'){
+   const vivo=D.transitoAoVivo?.[r.bi?.emp_dep]?.[r.bi?.material]?.[day(i)];
+   if(vivo){movements.fob[i]=vivo.fob??0;movements.cif[i]=vivo.cif??0;}
+  }
   // Datas anteriores usam a mesma base em todos os cenarios.
   if(!future)continue;
   // 5 cenarios de venda (pedido da usuaria, 2026-09-30): VMD (reprojetada), LE (vigente, SEM
