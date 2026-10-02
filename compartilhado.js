@@ -2,18 +2,15 @@
 (() => {
   const cloud = window.SIM_CLOUD;
   let currentId = null, expected = null, context = '', busy = false;
-  // Classe propria (ate 2026-10-01 reusava "scenario-controls", a mesma dos botoes de cenario de
-  // venda — colidia com o CSS deles e empilhava os 4 botoes sem hierarquia nenhuma, "muito confuso"
-  // no relato da usuaria). Agrupado: abrir (junto do seletor) · salvar (acao principal) · salvar como
-  // novo (secundaria) · atualizar lista (utilitario discreto).
+  // So' "Salvar na equipe" fica visivel (pedido da usuaria, 2026-10-02: "teria como tirar esses
+  // botoes? exceto o salvar na equipe"). "Abrir cenário"/"Salvar como novo"/lista/atualizar foram
+  // tirados da tela — o codigo de abrir/listar cenarios salvos (cloud.list/refresh) foi removido
+  // junto, ja' que nada mais chama. `save()` continua podendo ser chamado com `copy=true` no futuro
+  // se a funcionalidade "salvar como novo" precisar voltar.
   const bar = document.createElement('div');
   bar.className = 'cloud-bar';
-  bar.innerHTML = '<label>Cenários da equipe <select id="cloud-list"><option value="">Selecione um cenário</option></select></label>'
-    + '<div class="cloud-bar-actions">'
-    + '<button id="cloud-open">Abrir cenário</button>'
+  bar.innerHTML = '<div class="cloud-bar-actions">'
     + '<button id="cloud-save" class="primary">Salvar na equipe</button>'
-    + '<button id="cloud-copy">Salvar como novo</button>'
-    + '<button id="cloud-refresh" class="cloud-bar-ghost" title="Recarregar a lista de cenários salvos pela equipe">↺ Atualizar lista</button>'
     + '</div><small id="cloud-status" role="status"></small>';
   document.querySelector('.filters').after(bar);
   const note = text => { $('cloud-status').textContent = text; };
@@ -29,12 +26,11 @@
     document.querySelectorAll('[data-row], [data-param], [data-edit-key], #name').forEach(input => {
       input.disabled = !allowed;
     });
-    for (const id of ['reset', 'import', 'repeat-day', 'cloud-save', 'cloud-copy']) {
+    for (const id of ['reset', 'import', 'repeat-day', 'cloud-save']) {
       $(id).disabled = !allowed || busy;
     }
     if (context !== identity()) {
       context = identity(); currentId = null; expected = null;
-      $('cloud-list').replaceChildren(new Option('Selecione um cenário', ''));
       note(allowed ? 'Rascunho local. Use Salvar na equipe para compartilhar.' : 'Consulta: edição desta base não liberada para seu perfil.');
     }
   }
@@ -48,36 +44,6 @@
     try { await action(); } catch (error) { note(error.message); }
     finally { busy = false; lock(); }
   }
-  async function refresh() {
-    const selection = identity(), base = record.base;
-    const entries = await cloud.list(base);
-    if (selection !== identity()) return;
-    const options = [new Option('Selecione um cenário', '')];
-    for (const [id, entry] of Object.entries(entries)) {
-      try {
-        const value = E.validate(JSON.parse(entry.conteudo));
-        if (value.id === record.id && value.date === D.date && value.scenario === state.scenario)
-          options.push(new Option(value.name, id));
-      } catch { /* Um registro inválido não impede a leitura dos demais. */ }
-    }
-    $('cloud-list').replaceChildren(...options);
-    if (currentId) $('cloud-list').value = currentId;
-    note(`${options.length - 1} cenário(s) da equipe para esta base, produto, data e modo.`);
-  }
-  $('cloud-refresh').onclick = () => run(refresh);
-  $('cloud-open').onclick = () => run(async () => {
-    const id = $('cloud-list').value, selection = identity();
-    if (!id) throw new Error('Selecione um cenário da equipe.');
-    const entry = (await cloud.list(record.base))[id];
-    if (selection !== identity()) return;
-    if (!entry) throw new Error('Cenário não encontrado. Atualize a lista.');
-    const candidate = E.validate(JSON.parse(entry.conteudo));
-    if (candidate.id !== record.id || candidate.date !== D.date || candidate.scenario !== state.scenario)
-      throw new Error('O cenário pertence a outro recorte.');
-    if (!confirm('Abrir este cenário e substituir o rascunho atual deste recorte?')) return;
-    state = candidate; currentId = id; expected = entry;
-    persist(); premises(); render(true); note('Cenário da equipe aberto.');
-  });
   // Indicadores da visao do dia: calculados sobre os proximos 14 dias (mesma janela da simulacao).
   // Critico = fechamento negativo ou abaixo do lastro; atencao = no minimo ou abaixo, sem ser critico.
   function indicators(content) {
@@ -133,12 +99,11 @@
     const saved = await cloud.save(base, id, content, prior);
     if (selection !== identity()) return;
     currentId = id; expected = saved; state.name = content.name;
-    persist(); await refresh(); note('Cenário salvo para a equipe.');
+    persist(); note('Cenário salvo para a equipe.');
     try { await saveDaily(base, content); }
     catch (error) { note(`Cenário salvo para a equipe, mas a visão do dia falhou: ${error.message}`); }
   }
   $('cloud-save').onclick = () => run(() => save(false));
-  $('cloud-copy').onclick = () => run(() => save(true));
   lock();
   // Exposta pra dia.js reaproveitar o mesmo calculo de risco (critico/atencao/ok) no fallback "LE
   // padrao ao vivo" dos Riscos da semana (pedido da usuaria, 2026-10-01) — sem duplicar a logica aqui.
