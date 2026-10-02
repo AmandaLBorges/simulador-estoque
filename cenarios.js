@@ -35,31 +35,40 @@
  document.querySelector('.product-options').hidden=true;
  document.querySelector('.base-options').hidden=true;
  selector.parentElement.hidden=true;
- // Botoes de cenario: ficavam no topo, junto dos filtros; movidos pra cima da tabela (pedido da
- // usuaria, 2026-09-30, "fica mais simples") — e' o controle que escolhe de onde a linha que debita
- // puxa o dado, entao faz mais sentido perto da tabela do que la em cima.
+ // Botoes de cenario: ficam DENTRO da tabela, numa coluna propria a esquerda, alinhados (rowspan) com
+ // as linhas que cada grupo controla — pedido da usuaria, 2026-10-02: "chegue um ponto a tabela pra
+ // direita e deixe esse botoes aqui na parte de entrada e as saidas mesmo, e eu selecione pelo lado
+ // mesmo" (antes ficavam numa barra inteira acima da tabela). As celulas <th rowspan> em si sao gri
+ // geradas pelo app.js a cada rebuild (#entrada-controls-cell/#scenario-controls-cell); aqui so'
+ // criamos os grupos de botao UMA VEZ e os reencaixamos nessas celulas a cada render (rebuild troca o
+ // innerHTML da tabela inteira, entao as celulas sao recriadas do zero e precisam ser repreenchidas).
  const controls=document.createElement('div');
  controls.className='scenario-controls';
- controls.innerHTML='<span>Puxar vendas de:</span><div class="scenario-buttons" role="group" aria-label="Cenário de venda">'+modes.map(mode=>`<button type="button" data-scenario="${mode}" aria-pressed="false">${mode}</button>`).join('')+'</div>';
- tableSection.querySelector('.section-title').after(controls);
+ controls.title='Puxar vendas de';
+ controls.innerHTML='<span>Vendas</span><div class="scenario-buttons" role="group" aria-label="Cenário de venda">'+modes.map(mode=>`<button type="button" data-scenario="${mode}" aria-pressed="false">${mode}</button>`).join('')+'</div>';
  function syncButtons(){
   controls.querySelectorAll('button').forEach(button=>{button.setAttribute('aria-pressed',String(Boolean(state)&&button.dataset.scenario===state.scenario));});
  }
 
  // Origem da entrada: mesma mecanica dos botoes de vendas acima, so' que pro grupo Transito FOB/CIF +
- // Bombeio + Transferencia-entrada (pedido da usuaria, 2026-10-02: "esses botoes, quero que vc coloque
- // aqui do lado esquerdo" apontando pras linhas de entrada da tabela). Fica ACIMA do "Puxar vendas de"
- // porque as linhas de entrada tambem vem antes das linhas de venda na tabela. O <select id="entrada">
- // continua existindo (escondido) so' como estado — os botoes espelham ele, igual o #scenario acima.
+ // Bombeio + Transferencia-entrada. O <select id="entrada"> continua existindo (escondido) so' como
+ // estado — os botoes espelham ele, igual o #scenario acima.
  const entradaSelector=$('entrada');
  const entradaModes=[['auto','Fontes automáticas'],['cadencia','Cadência MIS']];
  entradaSelector.parentElement.hidden=true;
  const entradaControls=document.createElement('div');
  entradaControls.className='scenario-controls';
- entradaControls.innerHTML='<span>Puxar entrada de:</span><div class="scenario-buttons" role="group" aria-label="Origem da entrada">'+entradaModes.map(([valor,rotulo])=>`<button type="button" data-entrada="${valor}" aria-pressed="false">${rotulo}</button>`).join('')+'</div>';
- controls.before(entradaControls);
+ entradaControls.title='Puxar entrada de';
+ entradaControls.innerHTML='<span>Entrada</span><div class="scenario-buttons" role="group" aria-label="Origem da entrada">'+entradaModes.map(([valor,rotulo])=>`<button type="button" data-entrada="${valor}" aria-pressed="false">${rotulo}</button>`).join('')+'</div>';
  function syncEntradaButtons(){
   entradaControls.querySelectorAll('button').forEach(button=>{button.setAttribute('aria-pressed',String(Boolean(state)&&button.dataset.entrada===entradaSelector.value));});
+ }
+ // Reencaixa os 2 grupos de botao nas celulas <th rowspan> que o app.js acabou de (re)criar.
+ function placeCellButtons(){
+  const celulaEntrada=document.getElementById('entrada-controls-cell');
+  if(celulaEntrada&&!celulaEntrada.contains(entradaControls))celulaEntrada.appendChild(entradaControls);
+  const celulaVenda=document.getElementById('scenario-controls-cell');
+  if(celulaVenda&&!celulaVenda.contains(controls))celulaVenda.appendChild(controls);
  }
  function chooseEntrada(valor){
   if(!record){message('Escolha cidade, depósito e produto antes de trocar a origem da entrada.');return;}
@@ -83,7 +92,7 @@
   document.querySelectorAll('[data-row="sale"], [data-edit-key="sale"]').forEach(input=>{input.removeAttribute('title');input.closest('label')?.removeAttribute('title');});
  }
  const previousRender=render,previousEditor=renderEditor;
- render=function(rebuild=false){closePopup();previousRender(rebuild);limparDicaVenda();syncButtons();syncEntradaButtons();};
+ render=function(rebuild=false){closePopup();previousRender(rebuild);limparDicaVenda();placeCellButtons();syncButtons();syncEntradaButtons();};
  renderEditor=function(){previousEditor();limparDicaVenda();};
  function choose(mode){
   if(!modes.includes(mode)||!record){message('Escolha cidade, depósito e produto antes de trocar o cenário.');return;}
@@ -124,5 +133,5 @@
  document.addEventListener('scroll',closePopup,true);
  window.addEventListener('resize',closePopup);
  editDay=Math.max(0,Math.min(n-1,Math.round((new Date(today()+'T12:00:00')-new Date(D.date+'T12:00:00'))/86400000)));
- renderEditor();syncButtons();syncEntradaButtons();
+ renderEditor();placeCellButtons();syncButtons();syncEntradaButtons();
 })();

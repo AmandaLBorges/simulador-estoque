@@ -105,17 +105,26 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  const first=result.findIndex(x=>['danger','warn'].includes(status(x.opening))||['danger','warn'].includes(status(x.close)));
  $('cards').innerHTML=[['Abertura de referência',fmt(state.opening),'m³ · início do dia'],['Fechamento ao fim de 14 dias',fmt(last),`m³ · diferença de ${fmt(last-original.at(-1).close)} vs. original`],['Menor estoque no período',fmt(low),'m³ · abertura e fechamento'],['Primeira atenção',first<0?'Sem alerta de limite':label(first),first<0?'Verifique os limites e campos não preenchidos':'Confira os pontos de atenção abaixo']].map(([title,value,sub],i)=>`<article class="card"><small>${title}</small><strong class="${i===2?status(low):''}">${value}</strong><em>${sub}</em></article>`).join('');
  const offsets=Array.from({length:n},(_,i)=>i);
- if(rebuild){let html='<thead><tr><th>Movimento / m³</th>'+offsets.map(i=>`<th class="${i<0?'history':i===0?'today':''}">${label(i)}<br><small>${i<0?'Histórico':i===0?'Referência':'Simulação'}</small></th>`).join('')+'</tr></thead><tbody>';
- const outputRow=(key,name)=>`<tr class="total"><th>${name}</th>${offsets.map(i=>`<td data-result="${key}" data-day="${i}"></td>`).join('')}</tr>`;
+ if(rebuild){let html='<thead><tr><th class="row-controls"></th><th class="row-label">Movimento / m³</th>'+offsets.map(i=>`<th class="${i<0?'history':i===0?'today':''}">${label(i)}<br><small>${i<0?'Histórico':i===0?'Referência':'Simulação'}</small></th>`).join('')+'</tr></thead><tbody>';
+ const outputRow=(key,name)=>`<tr class="total"><th class="row-controls"></th><th class="row-label">${name}</th>${offsets.map(i=>`<td data-result="${key}" data-day="${i}"></td>`).join('')}</tr>`;
  html+=outputRow('opening','Estoque inicial · abertura');html+=outputRow('lastro','Lastro mínimo');html+=outputRow('openingNet','Abertura menos lastro');
  // 4 linhas informativas (so' leitura, nao entram no calculo) mostrando as referencias da venda antes
  // da linha editavel que realmente debita do estoque — pedido da usuaria, 2026-09-30: ver as 4 fontes
  // (VMD reprojetada, LE original sem reprojecao, Pedidos em tela = VA05 total do dia/todos os status,
  // faturamento real) fixas, lado a lado com o que foi aplicado (que o usuario escolhe puxar ou digitar).
- const infoRow=(titulo,getter)=>`<tr class="info-row"><th>↳ ${titulo}</th>${offsets.map(i=>`<td class="history">${i<0?'—':fmt(getter(i))}</td>`).join('')}</tr>`;
+ const infoRow=(titulo,getter)=>`<tr class="info-row"><th class="row-controls"></th><th class="row-label">↳ ${titulo}</th>${offsets.map(i=>`<td class="history${i===0?' today':''}">${i<0?'—':fmt(getter(i))}</td>`).join('')}</tr>`;
  // Pedido da usuaria, 2026-10-01: "Recebimento adicional manual" e "Programação adicional manual"
  // tiradas da tabela (ficavam sempre zeradas, so' poluiam a visao). O calculo continua somando o que
  // ja estiver salvo nesses campos (E.rows/motor.js inalterado); so' nao aparecem mais como linha editavel.
+ // Coluna de controle (rowspan) pros botoes "Puxar entrada de"/"Puxar vendas de" — pedido da usuaria,
+ // 2026-10-02: "chegue um ponto a tabela pra direita e deixe esse botoes aqui na parte de entrada e as
+ // saidas mesmo, e eu selecione pelo lado mesmo". A 1a linha de cada grupo (entrada: fob/cif/pump/
+ // transferIn; saida: sale/transferOut) recebe um <th rowspan> vazio que o cenarios.js preenche depois
+ // (ver #entrada-controls-cell/#scenario-controls-cell); as demais linhas do mesmo grupo nao emitem
+ // celula nenhuma nessa coluna, porque o rowspan da 1a linha ja' a ocupa.
+ const linhasVisiveis=E.rows.filter(([k])=>!['received','planned'].includes(k));
+ const entradaKeys=linhasVisiveis.filter(([,,sign])=>sign>0).map(([k])=>k);
+ const saidaKeys=linhasVisiveis.filter(([,,sign])=>sign<0).map(([k])=>k);
  for(const [k,l,sign] of E.rows){
   if(['received','planned'].includes(k))continue;
   if(k==='sale'){
@@ -124,11 +133,13 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
    html+=infoRow('Pedidos em tela',i=>record.bi?.days[day(i)]?.billing);
    html+=infoRow('Vendas reais (faturamento)',i=>record.bi?.semana?.porDia?.[day(i)]?.real);
   }
-  html+=`<tr class="${sign>0?'entry':'exit'}"><th>${sign>0?'+':'−'} ${l}</th>`+offsets.map(i=>i<0?`<td class="history" title="${k==='sale'?'Faturamento pendente de integração':'Informação histórica da fonte'}">${fmt(history(i)?.[k])}</td>`:`<td><input type="number" step="any" min="0" data-row="${k}" data-day="${i}" aria-label="${l} ${label(i)}" value="${Math.round(state.movements[k][i])}" title="${esc(sourceNote(k,i))}"></td>`).join('')+'</tr>';
+  const controlCell=k===entradaKeys[0]?`<th rowspan="${entradaKeys.length}" class="row-controls" id="entrada-controls-cell"></th>`
+   :k===saidaKeys[0]?`<th rowspan="${saidaKeys.length}" class="row-controls" id="scenario-controls-cell"></th>`:'';
+  html+=`<tr class="${sign>0?'entry':'exit'}">${controlCell}<th class="row-label">${sign>0?'+':'−'} ${l}</th>`+offsets.map(i=>i<0?`<td class="history${i===0?' today':''}" title="${k==='sale'?'Faturamento pendente de integração':'Informação histórica da fonte'}">${fmt(history(i)?.[k])}</td>`:`<td class="${i===0?'today':''}"><input type="number" step="any" min="0" data-row="${k}" data-day="${i}" aria-label="${l} ${label(i)}" value="${Math.round(state.movements[k][i])}" title="${esc(sourceNote(k,i))}"></td>`).join('')+'</tr>';
  }
  for(const [k,l] of [['incoming','Total de entradas'],['outgoing','Total de saídas'],['close','Fechamento projetado'],['available','Fechamento menos lastro']])html+=outputRow(k,l);
  $('grid').innerHTML=html+'</tbody>';}
- document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?(k==='opening'?history(i)?.opening:null):result[i][k];td.textContent=fmt(v);td.className=(i<0?'history ': '')+(['opening','close','available'].includes(k)?(v==null?'':status(v)):'');});
+ document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?(k==='opening'?history(i)?.opening:null):result[i][k];td.textContent=fmt(v);td.className=(i<0?'history ': '')+(i===0?'today ':'')+(['opening','close','available'].includes(k)?(v==null?'':status(v)):'');});
  document.querySelectorAll('[data-row]').forEach(input=>input.parentElement.classList.toggle('edited',state.movements[input.dataset.row][+input.dataset.day]!==baseline.movements[input.dataset.row][+input.dataset.day]));
  chart(result,original,Array.from({length:7+n},(_,i)=>i-7));alerts(result);
 }
