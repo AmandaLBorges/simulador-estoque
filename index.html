@@ -26,7 +26,7 @@
 <div id="account-bar" hidden><button id="ver-dia" type="button" hidden>Visão do dia</button><span id="sync-status" class="badge" title="Quando os dados das fontes foram lidos pela última vez"></span><span id="account-email"></span><button id="logout" type="button">Sair</button></div>
 <section id="dia-view" class="panel" hidden>
 <div class="section-title"><div><h2>Visão do dia</h2><p>Cenários salvos pela equipe, um registro por versão. Cada versão é definitiva; uma nova só se soma ao histórico.</p></div><button id="dia-fechar" type="button">Voltar à simulação</button></div>
-<div class="dia-tabs" role="tablist"><button type="button" data-dia-tab="semana" aria-selected="true">Riscos da semana</button><button type="button" data-dia-tab="data" aria-selected="false">Por data</button></div>
+<div class="dia-tabs" role="tablist"><button type="button" data-dia-tab="semana" aria-selected="true">Riscos da semana</button><button type="button" data-dia-tab="hoje" aria-selected="false">Simulações de hoje</button><button type="button" data-dia-tab="data" aria-selected="false">Por data</button></div>
 
 <div id="semana-view">
 <div class="semana-nav"><button id="semana-anterior" type="button" aria-label="Semana anterior">‹</button><div class="semana-pills" id="semana-pills"></div><button id="semana-proxima" type="button" aria-label="Próxima semana">›</button></div>
@@ -39,6 +39,15 @@
 <div id="semana-barra" class="semana-barra"></div>
 <div id="semana-resumo" class="semana-resumo"></div>
 <div id="semana-lista" class="semana-lista"></div>
+</div>
+
+<div id="hoje-view" hidden>
+<div class="dia-filtros" style="display:grid;grid-template-columns:1fr 2fr;gap:16px">
+<label>Região<select id="hoje-regiao"><option value="">Todas</option><option value="SP">SP</option><option value="MG_RJ">MG/RJ</option><option value="CO">Centro-Oeste</option></select></label>
+<label>Cidade/base<input id="hoje-base" type="search" placeholder="Filtrar por cidade ou base"></label>
+</div>
+<p id="hoje-status" class="muted" role="status"></p>
+<div id="hoje-lista" class="hoje-lista"></div>
 </div>
 
 <div id="data-view" hidden>

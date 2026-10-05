@@ -113,6 +113,18 @@ td.danger{background:#8B0000!important;color:white!important;box-shadow:inset 0 
 .semana-lista .card h3{margin:0 0 2px;font-size:14px}
 .semana-lista .card p{margin:8px 0;color:var(--text)}
 .semana-lista .card small{display:block;color:var(--muted)}
+/* Aba "Simulações de hoje": 1 card por cidade, expande (<details>) pra lista de produtos/bases salvos. */
+.hoje-lista{display:flex;flex-direction:column;gap:10px}
+.hoje-lista .card{padding:0;overflow:hidden}
+.hoje-lista summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px}
+.hoje-lista summary::-webkit-details-marker{display:none}
+.hoje-lista summary::before{content:'▸';color:var(--muted);transition:transform .15s}
+.hoje-lista details[open] summary::before{transform:rotate(90deg)}
+.hoje-lista summary strong{font-size:14px}
+.hoje-lista summary small{color:var(--muted)}
+.hoje-tabela{width:100%;border-collapse:collapse;font-size:13px}
+.hoje-tabela th,.hoje-tabela td{padding:6px 16px;text-align:left;border-top:1px solid var(--border)}
+.hoje-tabela th{color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase}
 /* Barra de progresso "ritmo da semana" (LE x ja vendido), no painel de historico/projecao. */
 #semana-progresso:not(:empty){margin-top:14px}
 .semana-progresso-rotulo{font-size:12px;color:var(--dim);margin-bottom:6px}

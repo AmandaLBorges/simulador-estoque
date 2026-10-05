@@ -22,11 +22,13 @@
 
   // ---- Abas ----
   const tabs = view.querySelectorAll('[data-dia-tab]');
-  const paineis = {semana: $('semana-view'), data: $('data-view')};
+  const paineis = {semana: $('semana-view'), hoje: $('hoje-view'), data: $('data-view')};
   tabs.forEach(botao => botao.onclick = () => {
     tabs.forEach(b => b.setAttribute('aria-selected', String(b === botao)));
     for (const [nome, painel] of Object.entries(paineis)) painel.hidden = nome !== botao.dataset.diaTab;
-    if (botao.dataset.diaTab === 'semana') renderSemana(); else renderDia();
+    if (botao.dataset.diaTab === 'semana') renderSemana();
+    else if (botao.dataset.diaTab === 'hoje') renderHoje();
+    else renderDia();
   });
 
   // ================= Por data =================
@@ -84,6 +86,63 @@
   [campoData, campoRegiaoDia, campoSituacaoDia].forEach(el => el.onchange = renderDia);
   let atrasoDia;
   campoBaseDia.oninput = () => { clearTimeout(atrasoDia); atrasoDia = setTimeout(renderDia, 250); };
+
+  // ================= Simulações de hoje =================
+  // Pedido da usuaria, 2026-10-05: "uma outra aba com os resultados das simulações do dia... pra
+  // entender os cenarios" — "É pra mostrar os cenários que a equipe salvou hoje (tipo a aba 'Por
+  // data' e cidade e produtos salvos ja)". Reaproveita linhasDoDia() (so' o que foi REALMENTE salvo,
+  // sem fallback de LE calculado — diferente da semana) fixo em D.date, agrupado por cidade; depois
+  // "quando abrir a cidade, quero a opção de abrir por produto" — cada card e' um <details> que expande
+  // pra tabela com 1 linha por base+produto salvo.
+  const campoRegiaoHoje = $('hoje-regiao'), campoBaseHoje = $('hoje-base'), statusHoje = $('hoje-status'), listaHoje = $('hoje-lista');
+  let geracaoHoje = 0;
+
+  async function renderHoje() {
+    const minha = ++geracaoHoje;
+    statusHoje.textContent = 'Carregando…'; listaHoje.innerHTML = '';
+    let itens;
+    try { itens = await linhasDoDia(D.date); }
+    catch (error) { if (minha === geracaoHoje) statusHoje.textContent = `Não foi possível carregar: ${error.message}`; return; }
+    if (minha !== geracaoHoje) return;
+    itens = itens.map(it => {
+      const registro = D.records.find(r => r.base === it.base);
+      return {...it, cidade: registro ? cidadeDe(registro) : (it.base || '—')};
+    });
+    const regiao = campoRegiaoHoje.value, busca = campoBaseHoje.value.trim().toLowerCase();
+    itens = itens.filter(it => (!regiao || cloud.regionOf(it.base) === regiao)
+      && (!busca || it.base.toLowerCase().includes(busca) || it.cidade.toLowerCase().includes(busca) || it.produto.toLowerCase().includes(busca)));
+    if (!itens.length) { statusHoje.textContent = 'Nenhuma simulação salva hoje com os filtros atuais.'; return; }
+    const porCidade = new Map();
+    for (const it of itens) {
+      const cidade = it.cidade || '—';
+      if (!porCidade.has(cidade)) porCidade.set(cidade, []);
+      porCidade.get(cidade).push(it);
+    }
+    const cidades = [...porCidade.entries()].map(([cidade, lista]) => {
+      lista.sort((a, b) => (b.atualizadoEm || 0) - (a.atualizadoEm || 0));
+      return {cidade, itens: lista};
+    }).sort((a, b) => b.itens.length - a.itens.length || a.cidade.localeCompare(b.cidade, 'pt-BR'));
+    statusHoje.textContent = `${itens.length} simulação(ões) salva(s) hoje em ${cidades.length} cidade(s).`;
+    listaHoje.innerHTML = cidades.map(c => `<details class="card">
+      <summary><strong>${esc(c.cidade)}</strong> <small>${c.itens.length} simulação(ões) salva(s)</small></summary>
+      <table class="hoje-tabela"><thead><tr><th>Base</th><th>Depósito</th><th>Produto</th><th>Cenário</th><th>Versão</th><th>Autor</th><th>Horário</th><th></th></tr></thead>
+      <tbody>${c.itens.map(it => `<tr>
+        <td>${esc(it.base)}</td><td>${esc(it.deposito || '—')}</td><td>${esc(it.produto)}</td><td>${esc(it.cenario)}</td>
+        <td>v${it.versao}</td><td>${esc(it.autorNome)}${it.motivo ? `<br><small>${esc(it.motivo)}</small>` : ''}</td>
+        <td>${it.atualizadoEm ? new Date(it.atualizadoEm).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) : '—'}</td>
+        <td><button type="button" data-abrir="${esc(it.base)}|${esc(it.produto)}|${esc(it.cenario)}">Abrir</button></td>
+      </tr>`).join('')}</tbody></table>
+    </details>`).join('');
+  }
+
+  listaHoje.addEventListener('click', event => {
+    const botao = event.target.closest('[data-abrir]'); if (!botao) return;
+    const [base, produto, cenario] = botao.dataset.abrir.split('|');
+    abrirCenario(base, produto, cenario);
+  });
+  campoRegiaoHoje.onchange = renderHoje;
+  let atrasoHoje;
+  campoBaseHoje.oninput = () => { clearTimeout(atrasoHoje); atrasoHoje = setTimeout(renderHoje, 250); };
 
   // ================= Riscos da semana =================
   const pills = $('semana-pills'), botaoAnterior = $('semana-anterior'), botaoProxima = $('semana-proxima'),
@@ -169,14 +228,17 @@
       // barrinha "Ritmo da semana"; so' existe pros 4 produtos cobertos pela reprojecao. Preenchido
       // pro registro ATUAL (hoje), independente de ser um item salvo ou calculado agora.
       const semana = r.bi?.semana && r.bi.semana.leSemana > 0 ? r.bi.semana : null;
+      // cidade (pedido da usuaria, 2026-10-05, visao executiva por cidade): mesma funcao cidadeDe() de
+      // app.js, cadastro oficial — usada pra agrupar itens de bases/depositos diferentes da mesma cidade.
+      const cidade = cidadeDe(r);
       const existente = salvos.get(chaveGlobal);
-      if (existente) { linhas.push({...existente, semana}); continue; }
+      if (existente) { linhas.push({...existente, semana, cidade}); continue; }
       try {
         const content = fresh(r, 'LE'), resultado = E.calculate(content, n), indicadores = window.SIM_INDICATORS(content);
         const diaIdx = indicadores.diaMenorEstoque == null ? null
           : Math.round((new Date(indicadores.diaMenorEstoque + 'T12:00:00') - new Date(D.date + 'T12:00:00')) / 86400000);
         const fluxoDia = diaIdx != null && resultado[diaIdx] ? {incoming: resultado[diaIdx].incoming, outgoing: resultado[diaIdx].outgoing} : null;
-        linhas.push({base: r.base, deposito, produto: r.product, cenario: 'LE', salvo: false, indicadores, fluxoDia, semana});
+        linhas.push({base: r.base, deposito, produto: r.product, cenario: 'LE', salvo: false, indicadores, fluxoDia, semana, cidade});
       } catch { /* registro sem dado suficiente pro calculo (ex.: sem abertura); ignora */ }
     }
     return linhas;
@@ -210,6 +272,29 @@
     const deficit = Math.max(0, -ind.menorEstoque);
     return deficit / (diasAte + 1);
   }
+  // Pedido da usuaria, 2026-10-05: "tira isso [cards por base/deposito] da visao do dia, eu queria
+  // algo + executivo... pode analisar por cidade como um todo os highlights, nao precisa ser por
+  // deposito". Agrupa os itens (base+deposito+produto) por CIDADE — 1 card por cidade, com a pior
+  // situacao entre os seus itens, a contagem por situacao, e os piores casos dela em texto.
+  function agruparPorCidade(itens) {
+    const porCidade = new Map();
+    for (const it of itens) {
+      const cidade = it.cidade || '—';
+      if (!porCidade.has(cidade)) porCidade.set(cidade, []);
+      porCidade.get(cidade).push(it);
+    }
+    return [...porCidade.entries()].map(([cidade, lista]) => {
+      lista.sort((a, b) => peso[a.indicadores.situacao] - peso[b.indicadores.situacao] || urgencia(b) - urgencia(a));
+      const resumoSituacao = lista.reduce((c, it) => ({...c, [it.indicadores.situacao]: (c[it.indicadores.situacao] || 0) + 1}), {});
+      return {
+        cidade, itens: lista,
+        situacao: lista[0].indicadores.situacao,
+        urgenciaMax: Math.max(...lista.map(urgencia)),
+        resumoSituacao,
+        piores: lista.filter(it => it.indicadores.situacao !== 'ok').slice(0, 3),
+      };
+    });
+  }
 
   async function renderSemana() {
     const minha = ++geracaoSemana;
@@ -233,32 +318,29 @@
     }
     const resumo = itens.reduce((c, it) => ({...c, [it.indicadores.situacao]: (c[it.indicadores.situacao] || 0) + 1}), {});
     const salvos = itens.filter(it => it.salvo).length;
-    // So' os 10 piores casos entram na lista (pedido da usuaria, 2026-10-02: "fica confusa pra
-    // diretores e gerentes tomarem ação" com os 87 criticos de uma vez) — ranqueados por urgencia()
-    // (deficit x proximidade da ruptura), dentro da ordem critico > atencao > ok ja aplicada acima.
-    // O status e a barra continuam mostrando a CONTAGEM TOTAL (contexto), so' a lista fica curta.
-    const top10 = itens.slice(0, 10);
-    statusSemana.textContent = `Semana ${semanaNum} (${periodo}) · ${itens.length} base(s) no total — `
+    // Visao MACRO por cidade (pedido da usuaria, 2026-10-05: "tira isso [por base/deposito] da visao
+    // do dia, queria algo + executivo... pode analisar por cidade como um todo os highlights, nao
+    // precisa ser por deposito" — "pq e' highlight ne? entao tem que ser macro"). 1 card por cidade,
+    // ordenado pela pior situacao + maior urgencia entre os itens dela — nao lista cada deposito
+    // separado, so' o resumo e os 2-3 piores casos em texto corrido dentro do card.
+    const cidades = agruparPorCidade(itens)
+      .sort((a, b) => peso[a.situacao] - peso[b.situacao] || b.urgenciaMax - a.urgenciaMax || a.cidade.localeCompare(b.cidade, 'pt-BR'));
+    statusSemana.textContent = `Semana ${semanaNum} (${periodo}) · ${itens.length} base(s) em ${cidades.length} cidade(s) — `
       + `${resumo.critico || 0} crítica(s) · ${resumo.atencao || 0} em atenção · ${resumo.ok || 0} ok `
-      + `· ${salvos} salva(s) pela equipe, ${itens.length - salvos} calculada(s) agora pelo LE padrão. `
-      + `Mostrando os 10 piores casos (mais urgentes), de ${itens.length}.`;
+      + `· ${salvos} salva(s) pela equipe, ${itens.length - salvos} calculada(s) agora pelo LE padrão.`;
     barra.innerHTML = ['critico', 'atencao', 'ok'].filter(s => resumo[s]).map(s =>
       `<span class="${s}" style="flex:${resumo[s]}">${resumo[s]}</span>`).join('');
     // Resumo executivo em texto (pedido da usuaria: "consolidar em formato de texto, com as principais
-    // causas, pra diretoria bater o olho") — os mesmos top 10 que aparecem nos cards abaixo, nao mais
-    // so' os criticos truncados em 8; agora resumo e cards mostram exatamente a mesma lista.
+    // causas, pra diretoria bater o olho") — 1 linha por cidade com problema, nao por base.
     const resumoEl = $('semana-resumo');
-    const piores = top10.filter(it => it.indicadores.situacao !== 'ok');
-    resumoEl.innerHTML = !piores.length ? '' : `<p><strong>Top ${piores.length} caso(s) mais urgente(s) esta semana` +
-      `${itens.length > piores.length ? ` (de ${resumo.critico || 0} crítica(s) + ${resumo.atencao || 0} em atenção)` : ''}:</strong></p><ul>`
-      + piores.map(it => `<li><strong>${esc(it.base)}</strong> (${esc(it.produto)}) — ${esc(causaTexto(it))}</li>`).join('') + '</ul>';
-    lista.innerHTML = top10.map(it => `<div class="card dia-${it.indicadores.situacao}">
-      <h3>${esc(it.base)}</h3>
-      <small>${esc(it.deposito || '—')} · ${esc(it.produto)} · ${esc(it.cenario)}</small>
-      <p><strong>${rotuloSituacao[it.indicadores.situacao]}</strong> — ${esc(causaTexto(it) || `menor estoque ${fmt(it.indicadores.menorEstoque)} m³`)}</p>
-      ${it.semana ? `<small>${Math.round(it.semana.realSemana / it.semana.leSemana * 100)}% do LE da semana vendido (${fmt(it.semana.realSemana)} de ${fmt(it.semana.leSemana)} m³)</small>` : ''}
-      <small>${it.salvo ? `Salvo em ${new Date(it.dia + 'T12:00:00').toLocaleDateString('pt-BR')} · v${it.versao} · ${esc(it.autorNome)}` : 'Não salvo · LE padrão calculado agora'}</small>
-      <div><button type="button" data-abrir="${esc(it.base)}|${esc(it.produto)}|${esc(it.cenario)}">Abrir</button></div>
+    const cidadesComProblema = cidades.filter(c => c.situacao !== 'ok');
+    resumoEl.innerHTML = !cidadesComProblema.length ? '' : `<p><strong>${cidadesComProblema.length} cidade(s) com atenção esta semana:</strong></p><ul>`
+      + cidadesComProblema.map(c => `<li><strong>${esc(c.cidade)}</strong> — ${c.piores.map(it => `${esc(it.base.replace(c.cidade, '').trim() || it.base)} (${esc(it.produto)}): ${esc(causaTexto(it))}`).join(' · ')}</li>`).join('') + '</ul>';
+    lista.innerHTML = cidades.map(c => `<div class="card dia-${c.situacao}">
+      <h3>${esc(c.cidade)}</h3>
+      <small>${c.itens.length} base(s)/depósito(s)/produto(s) · ${c.resumoSituacao.critico || 0} crítica(s) · ${c.resumoSituacao.atencao || 0} em atenção · ${c.resumoSituacao.ok || 0} ok</small>
+      <p><strong>${rotuloSituacao[c.situacao]}</strong>${c.piores.length ? ' — ' + c.piores.map(it => `${esc(it.base.replace(c.cidade, '').trim() || it.base)} (${esc(it.produto)}): ${esc(causaTexto(it))}`).join('; ') : ' — sem pontos de atenção nesta semana'}</p>
+      <div>${c.piores.map(it => `<button type="button" data-abrir="${esc(it.base)}|${esc(it.produto)}|${esc(it.cenario)}">Abrir ${esc(it.base.replace(c.cidade, '').trim() || it.base)}</button>`).join(' ')}</div>
     </div>`).join('');
   }
 
@@ -280,7 +362,7 @@
   document.addEventListener('visao-dia:atualizar', event => {
     view.hidden = false;
     tabs.forEach(b => b.setAttribute('aria-selected', String(b.dataset.diaTab === 'data')));
-    paineis.semana.hidden = true; paineis.data.hidden = false;
+    paineis.semana.hidden = true; paineis.hoje.hidden = true; paineis.data.hidden = false;
     campoData.value = event.detail.dia; renderDia();
     scrollTo({top: 0, behavior: 'smooth'});
   });
