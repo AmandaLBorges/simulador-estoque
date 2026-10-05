@@ -32,8 +32,13 @@
   });
 
   // ================= Por data =================
+  // Pedido da usuaria, 2026-10-05: "historico da data da simulação > base/cidade > produto" — escolhe
+  // o dia no campo acima (como sempre), e o resultado fica agrupado por cidade (1 card expansivel),
+  // com a tabela completa de base+produto dentro, igual a aba "Simulações de hoje" — so' que aqui
+  // cobre QUALQUER dia e mantem os indicadores de risco (situacao, menor estoque, dias critico/atencao)
+  // que ja existiam nessa aba, pra triagem.
   const campoData = $('dia-data'), campoRegiaoDia = $('dia-regiao'), campoBaseDia = $('dia-base'),
-    campoSituacaoDia = $('dia-situacao'), corpoDia = $('dia-tbody'), statusDia = $('dia-status');
+    campoSituacaoDia = $('dia-situacao'), listaDia = $('dia-lista'), statusDia = $('dia-status');
   campoData.value = D.date;
   let geracaoDia = 0;
 
@@ -52,33 +57,42 @@
 
   async function renderDia() {
     const minha = ++geracaoDia;
-    statusDia.textContent = 'Carregando…'; corpoDia.innerHTML = '';
+    statusDia.textContent = 'Carregando…'; listaDia.innerHTML = '';
     const dia = campoData.value || D.date;
     let itens;
     try { itens = await linhasDoDia(dia); }
     catch (error) { if (minha === geracaoDia) statusDia.textContent = `Não foi possível carregar: ${error.message}`; return; }
     if (minha !== geracaoDia) return;
+    itens = itens.map(it => {
+      const registro = D.records.find(r => r.base === it.base);
+      return {...it, cidade: registro ? cidadeDe(registro) : (it.base || '—')};
+    });
     const regiao = campoRegiaoDia.value, base = campoBaseDia.value.trim().toLowerCase(), situacao = campoSituacaoDia.value;
     itens = itens.filter(it => (!regiao || cloud.regionOf(it.base) === regiao)
-      && (!base || it.base.toLowerCase().includes(base))
+      && (!base || it.base.toLowerCase().includes(base) || it.cidade.toLowerCase().includes(base))
       && (!situacao || it.indicadores.situacao === situacao));
-    itens.sort((a, b) => peso[a.indicadores.situacao] - peso[b.indicadores.situacao] || a.base.localeCompare(b.base));
     if (!itens.length) { statusDia.textContent = 'Nenhuma visão salva para este dia com os filtros atuais.'; return; }
     const resumo = itens.reduce((c, it) => ({...c, [it.indicadores.situacao]: (c[it.indicadores.situacao] || 0) + 1}), {});
-    statusDia.textContent = `${itens.length} visão(ões) · ${resumo.critico || 0} crítica(s) · ${resumo.atencao || 0} em atenção · ${resumo.ok || 0} ok.`;
-    corpoDia.innerHTML = itens.map(it => `<tr class="dia-${it.indicadores.situacao}">
-      <td>${esc(it.base)}</td><td>${esc(it.deposito || '—')}</td><td>${esc(it.produto)}</td><td>${esc(it.cenario)}</td>
-      <td>${rotuloSituacao[it.indicadores.situacao]}</td>
-      <td>${fmt(it.indicadores.menorEstoque)}</td>
-      <td>${it.indicadores.diaMenorEstoque ? new Date(it.indicadores.diaMenorEstoque + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</td>
-      <td>${it.indicadores.diasCritico}</td><td>${it.indicadores.diasAtencao}</td>
-      <td>v${it.versao}</td>
-      <td>${esc(it.autorNome)}${it.motivo ? `<br><small>${esc(it.motivo)}</small>` : ''}</td>
-      <td><button type="button" data-abrir="${esc(it.base)}|${esc(it.produto)}|${esc(it.cenario)}">Abrir</button></td>
-    </tr>`).join('');
+    const cidades = agruparPorCidade(itens)
+      .sort((a, b) => peso[a.situacao] - peso[b.situacao] || b.urgenciaMax - a.urgenciaMax || a.cidade.localeCompare(b.cidade, 'pt-BR'));
+    statusDia.textContent = `${itens.length} visão(ões) em ${cidades.length} cidade(s) · ${resumo.critico || 0} crítica(s) · ${resumo.atencao || 0} em atenção · ${resumo.ok || 0} ok.`;
+    listaDia.innerHTML = cidades.map(c => `<details class="card dia-${c.situacao}">
+      <summary><strong>${esc(c.cidade)}</strong> <small>${c.itens.length} visão(ões) · ${c.resumoSituacao.critico || 0} crítica(s) · ${c.resumoSituacao.atencao || 0} em atenção · ${c.resumoSituacao.ok || 0} ok</small></summary>
+      <table class="hoje-tabela"><thead><tr><th>Base</th><th>Depósito</th><th>Produto</th><th>Cenário</th><th>Situação</th><th>Menor estoque (m³)</th><th>Dia do menor</th><th>Dias crítico</th><th>Dias atenção</th><th>Versão</th><th>Autor / motivo</th><th></th></tr></thead>
+      <tbody>${c.itens.map(it => `<tr class="dia-${it.indicadores.situacao}">
+        <td>${esc(it.base)}</td><td>${esc(it.deposito || '—')}</td><td>${esc(it.produto)}</td><td>${esc(it.cenario)}</td>
+        <td>${rotuloSituacao[it.indicadores.situacao]}</td>
+        <td>${fmt(it.indicadores.menorEstoque)}</td>
+        <td>${it.indicadores.diaMenorEstoque ? new Date(it.indicadores.diaMenorEstoque + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}</td>
+        <td>${it.indicadores.diasCritico}</td><td>${it.indicadores.diasAtencao}</td>
+        <td>v${it.versao}</td>
+        <td>${esc(it.autorNome)}${it.motivo ? `<br><small>${esc(it.motivo)}</small>` : ''}</td>
+        <td><button type="button" data-abrir="${esc(it.base)}|${esc(it.produto)}|${esc(it.cenario)}">Abrir</button></td>
+      </tr>`).join('')}</tbody></table>
+    </details>`).join('');
   }
 
-  corpoDia.addEventListener('click', event => {
+  listaDia.addEventListener('click', event => {
     const botao = event.target.closest('[data-abrir]'); if (!botao) return;
     const [base, produto, cenario] = botao.dataset.abrir.split('|');
     abrirCenario(base, produto, cenario);
