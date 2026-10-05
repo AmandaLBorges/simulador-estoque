@@ -110,6 +110,20 @@ td.danger{background:#8B0000!important;color:white!important;box-shadow:inset 0 
 .semana-lista .card h3{margin:0 0 2px;font-size:14px}
 .semana-lista .card p{margin:8px 0;color:var(--text)}
 .semana-lista .card small{display:block;color:var(--muted)}
+.semana-lista .card p{margin:8px 0 2px}
+/* Causas por produto, em bullet de verdade (nao middot numa frase corrida) — usado no resumo executivo
+   e dentro dos cards da semana (pedido da usuaria, 2026-10-06: "isso ta bem feio" na versao em texto). */
+.causas-lista{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.causas-lista li{position:relative;padding-left:12px;font-size:12px;color:var(--muted);line-height:1.45}
+.causas-lista li::before{content:'';position:absolute;left:0;top:7px;width:5px;height:5px;border-radius:50%;background:var(--border)}
+.causas-lista li strong{color:var(--text);font-weight:600}
+.causas-lista .tag{color:var(--dim);font-size:11px}
+.resumo-exec-titulo{margin:0 0 10px;font-size:14px;color:var(--text)}
+.resumo-exec-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-bottom:18px}
+.resumo-exec-item{border-left:4px solid var(--border);background:#17251B;border-radius:10px;padding:10px 14px}
+.resumo-exec-item.dia-critico{border-left-color:var(--danger)}
+.resumo-exec-item.dia-atencao{border-left-color:var(--orange)}
+.resumo-exec-cidade{font-weight:700;font-size:13px;color:#EEFE7A}
 /* Aba "Simulações de hoje" e "Por data": 1 card por cidade, expande (<details>) pra lista de
    produtos/bases salvos (pedido da usuaria, 2026-10-05: "data da simulação > base/cidade > produto"). */
 .hoje-lista{display:flex;flex-direction:column;gap:10px}

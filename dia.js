@@ -274,6 +274,20 @@
     if (ind.primeiraRuptura) partes.push(`ruptura a partir de ${new Date(ind.primeiraRuptura + 'T12:00:00').toLocaleDateString('pt-BR')}`);
     return partes.join(' · ');
   }
+  // Versao curta de causaTexto() pra lista/resumo (pedido da usuaria, 2026-10-06: a frase corrida com
+  // todos os detalhes "ta bem feio" quando empilhada em varias cidades/produtos — aqui so' o essencial
+  // (estoque + data + ruptura, se for diferente do dia do menor estoque), 1 linha curta por produto;
+  // o detalhe completo continua nas abas "Simulações de hoje"/"Por data" (tabela, não texto).
+  function causaResumida(it) {
+    const ind = it.indicadores;
+    if (ind.situacao === 'ok') return null;
+    const diaFmt = ind.diaMenorEstoque ? new Date(ind.diaMenorEstoque + 'T12:00:00').toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'}) : null;
+    let texto = `estoque ${fmt(ind.menorEstoque)} m³${diaFmt ? ' em ' + diaFmt : ''}`;
+    if (ind.primeiraRuptura && ind.primeiraRuptura !== ind.diaMenorEstoque) {
+      texto += ` · ruptura ${new Date(ind.primeiraRuptura + 'T12:00:00').toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'})}`;
+    }
+    return texto;
+  }
   // Urgencia (pedido da usuaria, 2026-10-02: "quanto mais proximo de termos ruptura e maior for o
   // volume dessa ruptura" — usado pra ranquear o TOP 10, porque 87 criticos de uma vez "fica confuso
   // pra diretores e gerentes tomarem acao"). Deficit (m³ negativos) dividido pelos dias ate' a ruptura
@@ -344,16 +358,21 @@
       + `· ${salvos} salva(s) pela equipe, ${itens.length - salvos} calculada(s) agora pelo LE padrão.`;
     barra.innerHTML = ['critico', 'atencao', 'ok'].filter(s => resumo[s]).map(s =>
       `<span class="${s}" style="flex:${resumo[s]}">${resumo[s]}</span>`).join('');
-    // Resumo executivo em texto (pedido da usuaria: "consolidar em formato de texto, com as principais
-    // causas, pra diretoria bater o olho") — 1 linha por cidade com problema, nao por base.
+    // Resumo executivo (pedido da usuaria: "consolidar em formato de texto, com as principais causas,
+    // pra diretoria bater o olho") — pedido da usuaria, 2026-10-06: "isso ta bem feio" na frase corrida
+    // original; agora 1 card curto por cidade, com 1 linha por produto (bullet de verdade, nao middot).
     const resumoEl = $('semana-resumo');
     const cidadesComProblema = cidades.filter(c => c.situacao !== 'ok');
-    resumoEl.innerHTML = !cidadesComProblema.length ? '' : `<p><strong>${cidadesComProblema.length} cidade(s) com atenção esta semana:</strong></p><ul>`
-      + cidadesComProblema.map(c => `<li><strong>${esc(c.cidade)}</strong> — ${c.piores.map(it => `${esc(it.base.replace(c.cidade, '').trim() || it.base)} (${esc(it.produto)}): ${esc(causaTexto(it))}`).join(' · ')}</li>`).join('') + '</ul>';
+    resumoEl.innerHTML = !cidadesComProblema.length ? '' : `<p class="resumo-exec-titulo"><strong>${cidadesComProblema.length} cidade(s) com atenção esta semana</strong></p>
+      <div class="resumo-exec-grid">${cidadesComProblema.map(c => `<div class="resumo-exec-item dia-${c.situacao}">
+        <div class="resumo-exec-cidade">${esc(c.cidade)}</div>
+        <ul class="causas-lista">${c.piores.map(it => `<li><strong>${esc(it.base.replace(c.cidade, '').trim() || it.base)}</strong> <span class="tag">${esc(it.produto)}</span> — ${esc(causaResumida(it))}</li>`).join('')}</ul>
+      </div>`).join('')}</div>`;
     lista.innerHTML = cidades.map(c => `<div class="card dia-${c.situacao}">
       <h3>${esc(c.cidade)}</h3>
       <small>${c.itens.length} base(s)/depósito(s)/produto(s) · ${c.resumoSituacao.critico || 0} crítica(s) · ${c.resumoSituacao.atencao || 0} em atenção · ${c.resumoSituacao.ok || 0} ok</small>
-      <p><strong>${rotuloSituacao[c.situacao]}</strong>${c.piores.length ? ' — ' + c.piores.map(it => `${esc(it.base.replace(c.cidade, '').trim() || it.base)} (${esc(it.produto)}): ${esc(causaTexto(it))}`).join('; ') : ' — sem pontos de atenção nesta semana'}</p>
+      <p><strong>${rotuloSituacao[c.situacao]}</strong></p>
+      ${c.piores.length ? `<ul class="causas-lista">${c.piores.map(it => `<li><strong>${esc(it.base.replace(c.cidade, '').trim() || it.base)}</strong> <span class="tag">${esc(it.produto)}</span> — ${esc(causaResumida(it))}</li>`).join('')}</ul>` : ''}
       <div>${c.piores.map(it => `<button type="button" data-abrir="${esc(it.base)}|${esc(it.produto)}|${esc(it.cenario)}">Abrir ${esc(it.base.replace(c.cidade, '').trim() || it.base)}</button>`).join(' ')}</div>
     </div>`).join('');
   }
