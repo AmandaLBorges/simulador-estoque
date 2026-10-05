@@ -142,10 +142,12 @@
  // Tambem mostra a data de cada leitura (aberturaEm) — ja' aproveita pra avisar quando alguma base
  // esta' com leitura atrasada (nao e' de hoje), que foi exatamente o caso real da SIM/CHARRUA em
  // Betim que a usuaria perguntou antes.
+ function diasDesde(dataIso){return Math.round((new Date(D.date+'T12:00:00')-new Date(dataIso+'T12:00:00'))/86400000);}
+ function avisoAtraso(dataAbertura){if(!dataAbertura||dataAbertura===D.date)return'';const dias=diasDesde(dataAbertura);return ` ⚠ há ${dias} dia${dias===1?'':'s'}`;}
  function conteudoPopupAbertura(){
   const combinados=record._registrosCombinados;
-  if(!combinados)return `<strong>Estoque inicial · abertura</strong><p>${fmt(record.opening)} m³ · ${dateLabel(record.aberturaEm||D.date)}${record.aberturaEm&&record.aberturaEm!==D.date?' ⚠ não é de hoje':''}</p>`;
-  const linha=r=>`<div><dt>${esc(depositoDe(r))} · ${esc(empresaDe(r))}</dt><dd>${fmt(r.opening)} m³ · ${dateLabel(r.aberturaEm||D.date)}${r.aberturaEm&&r.aberturaEm!==D.date?' ⚠ não é de hoje':''}</dd></div>`;
+  if(!combinados)return `<strong>Estoque inicial · abertura</strong><p>${fmt(record.opening)} m³ · ${dateLabel(record.aberturaEm||D.date)}${avisoAtraso(record.aberturaEm)}</p>`;
+  const linha=r=>`<div><dt>${esc(depositoDe(r))} · ${esc(empresaDe(r))}</dt><dd>${fmt(r.opening)} m³ · ${dateLabel(r.aberturaEm||D.date)}${avisoAtraso(r.aberturaEm)}</dd></div>`;
   return `<strong>Estoque inicial · abertura · ${dateLabel(D.date)}</strong><dl>${combinados.map(linha).join('')}</dl><p>${combinados.length} base(s) · total ${fmt(record.opening)} m³</p>`;
  }
  function showPopup(input){

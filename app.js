@@ -145,6 +145,16 @@ function select(){
 // leitura atrasada, considera atrasado tambem (mesmo que outras estejam em dia) — e' sinal de alerta
 // visual na celula, o detalhe de qual base exatamente fica no popup (cenarios.js:conteudoPopupAbertura).
 function aberturaAtrasada(){if(record._registrosCombinados)return record._registrosCombinados.some(r=>r.aberturaEm&&r.aberturaEm!==D.date);return record.aberturaEm && record.aberturaEm!==D.date;}
+// Pedido da usuaria, 2026-10-05: quanto mais velha a leitura, mais forte o aviso visual — nao so'
+// laranja pra qualquer atraso, mas vermelho a partir de alguns dias (DIAS_ABERTURA_GRAVE). No modo
+// combinado usa a leitura MAIS atrasada entre as bases somadas (pior caso, mais conservador).
+const DIAS_ABERTURA_GRAVE=3;
+function diasAtrasoAbertura(){
+ if(!record)return 0;
+ const datas=(record._registrosCombinados?record._registrosCombinados.map(r=>r.aberturaEm):[record.aberturaEm]).filter(d=>d&&d!==D.date);
+ if(!datas.length)return 0;
+ return Math.max(...datas.map(d=>Math.round((new Date(D.date+'T12:00:00')-new Date(d+'T12:00:00'))/86400000)));
+}
 function premises(){$('name').value=state.name;$('clamp').checked=state.clamp;$('premises').innerHTML=parameters.map(([k,l])=>`<label>${l}<input type="number" readonly data-param="${k}" aria-label="${l}" value="${state[k]===null?'':Math.round(state[k])}" placeholder="Ausente na fonte" title="Valor fixo, carregado da planilha de política."><small>${k==='opening'?(aberturaAtrasada()?`⚠ Abertura de ${new Date(record.aberturaEm+'T12:00:00').toLocaleDateString('pt-BR')} (não é de hoje)`:'Abertura importada'):`Política: ${fmt(baseline[k])} m³`}</small></label>`).join('');}
 function history(i){return D.history?.[day(i)]?.[record.base+'|'+record.product];}
 function status(v){return E.stockBand(v,state);}
@@ -193,7 +203,7 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  // Celula de abertura (dia 0) ganha um aviso visual quando a leitura nao e' de hoje — pedido da
  // usuaria, 2026-10-05: "mostra a ultima data que puxou... uma cor diferente pra mostrar que nao e'
  // a do dia". O detalhe de qual base exatamente (no combinado) fica no popup, ao passar o mouse/clicar.
- document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?(k==='opening'?history(i)?.opening:null):result[i][k];const atrasada=k==='opening'&&i===0&&aberturaAtrasada();td.textContent=(atrasada?'⚠ ':'')+fmt(v);td.className=(i<0?'history ': '')+(i===0?'today ':'')+(atrasada?'atrasada ':'')+(['opening','close','available'].includes(k)?(v==null?'':status(v)):'');});
+ document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?(k==='opening'?history(i)?.opening:null):result[i][k];const ehAbertura=k==='opening'&&i===0,dias=ehAbertura?diasAtrasoAbertura():0;td.textContent=(dias>0?'⚠ ':'')+fmt(v);td.className=(i<0?'history ': '')+(i===0?'today ':'')+(dias>0?(dias>=DIAS_ABERTURA_GRAVE?'atrasada-grave ':'atrasada '):'')+(['opening','close','available'].includes(k)?(v==null?'':status(v)):'');});
  document.querySelectorAll('[data-row]').forEach(input=>input.parentElement.classList.toggle('edited',state.movements[input.dataset.row][+input.dataset.day]!==baseline.movements[input.dataset.row][+input.dataset.day]));
  chart(result,original,Array.from({length:7+n},(_,i)=>i-7));alerts(result);
 }
