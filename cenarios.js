@@ -137,17 +137,29 @@
   const linha=v=>`<div><dt>${esc(v.transportador||'Transportador não informado')}${v.placa?' · '+esc(v.placa):''}${v._origem?' · '+esc(v._origem):''}</dt><dd>${fmt(v.volume)} m³${v.status?' · '+esc(v.status):''}${v.status==='Em Andamento'&&v.kmRestante!=null?' · '+fmt(v.kmRestante)+' km restantes':''}${v.chegadaReal?' · chegou '+new Date(v.chegadaReal).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):v.eta?' · ETA '+new Date(v.eta).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</dd></div>`;
   return `<strong>Trânsito FOB · ${dateLabel(day(index))}</strong><dl>${viagens.map(linha).join('')}</dl><p>${viagens.length} viagem(ns) · total ${fmt(viagens.reduce((s,v)=>s+v.volume,0))} m³</p>`;
  }
+ // Popup "de qual deposito/empresa vem essa abertura" no modo combinado — pedido da usuaria,
+ // 2026-10-05: "na abertura, quando selecionar + de 1, eu preciso saber qual deposito e empresa".
+ // Tambem mostra a data de cada leitura (aberturaEm) — ja' aproveita pra avisar quando alguma base
+ // esta' com leitura atrasada (nao e' de hoje), que foi exatamente o caso real da SIM/CHARRUA em
+ // Betim que a usuaria perguntou antes.
+ function conteudoPopupAbertura(){
+  const combinados=record._registrosCombinados;
+  if(!combinados)return `<strong>Estoque inicial · abertura</strong><p>${fmt(record.opening)} m³ · ${dateLabel(record.aberturaEm||D.date)}${record.aberturaEm&&record.aberturaEm!==D.date?' ⚠ não é de hoje':''}</p>`;
+  const linha=r=>`<div><dt>${esc(depositoDe(r))} · ${esc(empresaDe(r))}</dt><dd>${fmt(r.opening)} m³ · ${dateLabel(r.aberturaEm||D.date)}${r.aberturaEm&&r.aberturaEm!==D.date?' ⚠ não é de hoje':''}</dd></div>`;
+  return `<strong>Estoque inicial · abertura · ${dateLabel(D.date)}</strong><dl>${combinados.map(linha).join('')}</dl><p>${combinados.length} base(s) · total ${fmt(record.opening)} m³</p>`;
+ }
  function showPopup(input){
   closePopup();anchor=input;
   const index=input.dataset.day===undefined?editDay:Number(input.dataset.day);
-  popup.innerHTML=input.dataset.row==='fob'?conteudoPopupFob(index):conteudoPopupVendas(index);
+  const tipo=input.dataset.row||input.dataset.result;
+  popup.innerHTML=tipo==='fob'?conteudoPopupFob(index):tipo==='opening'?conteudoPopupAbertura():conteudoPopupVendas(index);
   input.setAttribute('aria-describedby','sales-popover');
   popup.hidden=false;
   const rect=input.getBoundingClientRect(),width=popup.offsetWidth,height=popup.offsetHeight;
   popup.style.left=Math.max(8,Math.min(rect.left,innerWidth-width-8))+'px';
   popup.style.top=Math.max(8,rect.bottom+height+8<=innerHeight?rect.bottom+8:rect.top-height-8)+'px';
  }
- const salesInput=target=>target instanceof Element?(target.closest('[data-row="sale"], [data-row="fob"], [data-edit-key="sale"]')||target.closest('td, label')?.querySelector('[data-row="sale"], [data-row="fob"], [data-edit-key="sale"]')):null;
+ const salesInput=target=>target instanceof Element?(target.closest('[data-row="sale"], [data-row="fob"], [data-edit-key="sale"], [data-result="opening"][data-day="0"]')||target.closest('td, label')?.querySelector('[data-row="sale"], [data-row="fob"], [data-edit-key="sale"]')):null;
  document.addEventListener('pointerover',event=>{const input=salesInput(event.target);if(input)showPopup(input);});
  document.addEventListener('focusin',event=>{const input=salesInput(event.target);if(input){requestAnimationFrame(()=>{if(document.activeElement===input)showPopup(input);});}else closePopup();});
  document.addEventListener('pointerout',event=>{if(salesInput(event.target)&&document.activeElement!==event.target)closePopup();});

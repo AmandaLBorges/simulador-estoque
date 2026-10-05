@@ -141,7 +141,10 @@ function select(){
 // continuam editaveis, na tabela e no editor por dia.
 // record.aberturaEm: dia de onde veio a abertura dessa base+produto (pode ser mais antigo que D.date —
 // ver JANELA_FALLBACK_ABERTURA_DIAS em atualizar_dados.py). Avisa na tela quando nao e' de hoje.
-function aberturaAtrasada(){return record.aberturaEm && record.aberturaEm!==D.date;}
+// Pedido da usuaria, 2026-10-05: no modo combinado, se QUALQUER uma das bases por tras da soma tiver
+// leitura atrasada, considera atrasado tambem (mesmo que outras estejam em dia) — e' sinal de alerta
+// visual na celula, o detalhe de qual base exatamente fica no popup (cenarios.js:conteudoPopupAbertura).
+function aberturaAtrasada(){if(record._registrosCombinados)return record._registrosCombinados.some(r=>r.aberturaEm&&r.aberturaEm!==D.date);return record.aberturaEm && record.aberturaEm!==D.date;}
 function premises(){$('name').value=state.name;$('clamp').checked=state.clamp;$('premises').innerHTML=parameters.map(([k,l])=>`<label>${l}<input type="number" readonly data-param="${k}" aria-label="${l}" value="${state[k]===null?'':Math.round(state[k])}" placeholder="Ausente na fonte" title="Valor fixo, carregado da planilha de política."><small>${k==='opening'?(aberturaAtrasada()?`⚠ Abertura de ${new Date(record.aberturaEm+'T12:00:00').toLocaleDateString('pt-BR')} (não é de hoje)`:'Abertura importada'):`Política: ${fmt(baseline[k])} m³`}</small></label>`).join('');}
 function history(i){return D.history?.[day(i)]?.[record.base+'|'+record.product];}
 function status(v){return E.stockBand(v,state);}
@@ -187,7 +190,10 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  }
  for(const [k,l] of [['incoming','Total de entradas'],['outgoing','Total de saídas'],['close','Fechamento projetado'],['available','Fechamento menos lastro']])html+=outputRow(k,l);
  $('grid').innerHTML=html+'</tbody>';}
- document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?(k==='opening'?history(i)?.opening:null):result[i][k];td.textContent=fmt(v);td.className=(i<0?'history ': '')+(i===0?'today ':'')+(['opening','close','available'].includes(k)?(v==null?'':status(v)):'');});
+ // Celula de abertura (dia 0) ganha um aviso visual quando a leitura nao e' de hoje — pedido da
+ // usuaria, 2026-10-05: "mostra a ultima data que puxou... uma cor diferente pra mostrar que nao e'
+ // a do dia". O detalhe de qual base exatamente (no combinado) fica no popup, ao passar o mouse/clicar.
+ document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?(k==='opening'?history(i)?.opening:null):result[i][k];const atrasada=k==='opening'&&i===0&&aberturaAtrasada();td.textContent=(atrasada?'⚠ ':'')+fmt(v);td.className=(i<0?'history ': '')+(i===0?'today ':'')+(atrasada?'atrasada ':'')+(['opening','close','available'].includes(k)?(v==null?'':status(v)):'');});
  document.querySelectorAll('[data-row]').forEach(input=>input.parentElement.classList.toggle('edited',state.movements[input.dataset.row][+input.dataset.day]!==baseline.movements[input.dataset.row][+input.dataset.day]));
  chart(result,original,Array.from({length:7+n},(_,i)=>i-7));alerts(result);
 }
