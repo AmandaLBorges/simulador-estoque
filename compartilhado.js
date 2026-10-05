@@ -20,20 +20,26 @@
   key = () => `${window.SIM_AUTH.uid}:${previousKey()}`;
   // Não reutilizar rascunhos deixados por outra conta no mesmo navegador.
   select();
-  const editable = () => Boolean(record) && cloud.canEdit(record.base);
+  // Modo combinado (2+ depositos/empresas somados, pedido da usuaria 2026-10-05): edicao local livre
+  // igual sempre foi (o filtro de regiao ja' restringe quais bases entram na combinacao, em
+  // registrosAtuais()/basesPermitidas()) — so' "Salvar na equipe" fica bloqueado, porque nao existe
+  // uma unica base pra registrar o cenario salvo.
+  const editable = () => Boolean(record) && (modoCombinado || cloud.canEdit(record.base));
   function lock() {
     const allowed = editable();
+    const podeSalvarEquipe = allowed && !modoCombinado;
     document.querySelectorAll('[data-row], [data-param], [data-edit-key], #name').forEach(input => {
       input.disabled = !allowed;
     });
     // 'reset' e 'import' (botoes do topo) foram tirados da tela em 2026-10-02 — 'reset-tabela' (↺
     // Restaurar, junto da tabela) e' quem faz a restauracao agora; 'import' nao tem mais substituto.
-    for (const id of ['reset-tabela', 'repeat-day', 'cloud-save']) {
+    for (const id of ['reset-tabela', 'repeat-day']) {
       $(id).disabled = !allowed || busy;
     }
+    $('cloud-save').disabled = !podeSalvarEquipe || busy;
     if (context !== identity()) {
       context = identity(); currentId = null; expected = null;
-      note(allowed ? 'Rascunho local. Use Salvar na equipe para compartilhar.' : 'Consulta: edição desta base não liberada para seu perfil.');
+      note(modoCombinado ? 'Modo combinado: edição liberada, mas não dá pra salvar na equipe (não existe uma base só pra registrar).' : allowed ? 'Rascunho local. Use Salvar na equipe para compartilhar.' : 'Consulta: edição desta base não liberada para seu perfil.');
     }
   }
   const previousRender = render;
@@ -86,6 +92,7 @@
     note('Cenário salvo para a equipe e na visão do dia.');
   }
   async function save(copy) {
+    if (modoCombinado) throw new Error('Modo combinado: não dá pra salvar na equipe, só existe cenário salvo por base.');
     if (!editable()) throw new Error('Seu perfil permite apenas consultar esta base.');
     const content = E.validate(structuredClone(state));
     const name = prompt('Nome do cenário para a equipe:', content.name);

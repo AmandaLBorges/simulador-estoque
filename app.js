@@ -5,6 +5,14 @@ const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 const day=i=>{const d=new Date(D.date+'T12:00:00');d.setDate(d.getDate()+i);return d.toISOString().slice(0,10);};
 const label=i=>new Date(day(i)+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
 let record,state,baseline,n=15,timer;
+// Selecao multipla de deposito/empresa (pedido da usuaria, 2026-10-05): "deixa selecionar + de 1
+// deposito e + de 1 empresa, mas deixa simular e soma as informacoes, mas nao deixa salvar na equipe".
+// depositosAtivos/empresasAtivas sao a fonte da verdade (um Set cada, mesmo no modo normal de 1 so');
+// os <select> de cima refletem esse estado quando da' pra mostrar um unico valor, e os chips (botoes)
+// sao quem realmente liga/desliga cada opcao quando tem mais de uma ativa. modoCombinado=true quando
+// a combinacao atual junta 2+ registros — compartilhado.js usa essa flag pra desabilitar so' o
+// "Salvar na equipe" (o resto da edicao continua liberado normalmente).
+let depositosAtivos=new Set(),empresasAtivas=new Set(),modoCombinado=false;
 function mergeSource(saved,current){const next=structuredClone(current),previous=saved.sourceBaseline;if(previous){for(const [k]of parameters)if(saved[k]!==previous[k])next[k]=saved[k];for(const [k]of E.rows)for(let i=0;i<30;i++)if(saved.movements[k][i]!==previous.movements[k][i])next.movements[k][i]=saved.movements[k][i];}else{for(const [k]of parameters)next[k]=saved[k];next.movements=structuredClone(saved.movements);}next.name=saved.name;return next;}
 const parameters=[['opening','Estoque inicial / abertura'],['lastro','Lastro mínimo'],['min','Estoque mínimo'],['mid','Estoque médio'],['max','Estoque máximo'],['capacity','Capacidade física']];
 function simulationToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());}
@@ -89,13 +97,35 @@ function empresaDe(registro){return registro.bi?.empresa||'';}
 // Garças Nexta"); (2) mesmo so' com cidade+deposito, existem 7 combinacoes REAIS ambiguas no cadastro
 // (ex.: "Betim"+"POTENCIAL" tem 3 bases diferentes — CHARRUA/Nexta/SIM, que so' se distinguem pela
 // Empresa) — por isso o 3o filtro de Empresa.
-function baseAtual(){const cidade=$('cidade').value,deposito=$('deposito').value,empresa=$('empresa').value;if(!cidade||!deposito||!empresa)return'';return D.records.find(r=>cidadeDe(r)===cidade&&depositoDe(r)===deposito&&empresaDe(r)===empresa)?.base||'';}
-function products(){options($('product'),[...new Set(D.records.filter(r=>r.base===baseAtual()).map(r=>r.product))]);select();}
-function select(){record=D.records.find(r=>r.base===baseAtual()&&r.product===$('product').value);
+// Registros batendo cidade + QUALQUER deposito ativo + QUALQUER empresa ativa (os Sets, nao mais um
+// unico valor). Com 1 so' em cada Set, e' exatamente o que baseAtual() fazia antes.
+function registrosAtuais(){const cidade=$('cidade').value;if(!cidade||!depositosAtivos.size||!empresasAtivas.size)return[];return D.records.filter(r=>cidadeDe(r)===cidade&&depositosAtivos.has(depositoDe(r))&&empresasAtivas.has(empresaDe(r)));}
+function products(){options($('product'),[...new Set(registrosAtuais().map(r=>r.product))]);select();}
+function somaOuNula(valores){const presentes=valores.filter(v=>v!==null&&v!==undefined);return presentes.length?presentes.reduce((a,b)=>a+b,0):null;}
+// So' os campos realmente lidos de record.bi.days fora do fresh() (VMD/Pedidos em tela nas linhas de
+// referencia da tabela) — tudo que alimenta a simulacao de verdade (fob/cif/pump/sale/...) ja vem
+// somado via freshCombinado, que chama fresh() em CADA registro real antes de somar.
+function biDiaCombinado(registros,iso){const dias=registros.map(r=>r.bi?.days?.[iso]).filter(Boolean);if(!dias.length)return null;return{vmd:somaOuNula(dias.map(d=>d.vmd)),billing:somaOuNula(dias.map(d=>d.billing))};}
+function semanaCombinada(registros){const semanas=registros.map(r=>r.bi?.semana).filter(Boolean);if(!semanas.length)return null;const dias=new Set();for(const s of semanas)for(const d of Object.keys(s.porDia||{}))dias.add(d);const porDia={};for(const d of dias){const les=semanas.map(s=>s.porDia?.[d]?.le).filter(v=>v!=null),reais=semanas.map(s=>s.porDia?.[d]?.real).filter(v=>v!=null);porDia[d]={le:les.length?les.reduce((a,b)=>a+b,0):0,real:reais.length?reais.reduce((a,b)=>a+b,0):null};}return{leSemana:somaOuNula(semanas.map(s=>s.leSemana))??0,realSemana:somaOuNula(semanas.map(s=>s.realSemana))??0,porDia};}
+// "record" sintetico pro modo combinado: so' metadados/exibicao (base/politica/texto) — a simulacao em
+// si usa freshCombinado, nao os campos deste objeto. emp_dep fica null de proposito: o popup de
+// trânsito FOB (cenarios.js) ja degrada bem pra "sem detalhe" quando nao acha D.transitoAoVivo[null].
+function construirRegistroCombinado(registros,openingSomado){const cidade=cidadeDe(registros[0]),produto=registros[0].product;const depositos=[...new Set(registros.map(depositoDe))].sort((a,b)=>a.localeCompare(b,'pt-BR')),empresas=[...new Set(registros.map(empresaDe))].sort((a,b)=>a.localeCompare(b,'pt-BR'));const atrasado=registros.find(r=>r.aberturaEm&&r.aberturaEm!==D.date);return{id:'combinado:'+registros.map(r=>r.id).sort().join(','),base:`${cidade} · ${depositos.join(' + ')} · ${empresas.join(' + ')} (combinado)`,product:produto,sheet:'—',row:'—',opening:openingSomado,aberturaEm:atrasado?atrasado.aberturaEm:D.date,policy:{name:`Combinado · ${registros.length} bases somadas`,source:'Somado automaticamente a partir das bases selecionadas',sheet:'—',row:'—'},bi:{name:cidade,material:registros[0].bi.material,emp_dep:null,cidade,deposito:depositos.join(' + '),empresa:empresas.join(' + '),unit:'m³',days:Object.fromEntries(Object.keys(registros[0].bi.days).map(iso=>[iso,biDiaCombinado(registros,iso)])),semana:semanaCombinada(registros),semanaPorDeposito:null}};}
+// Soma, campo a campo, o fresh() de CADA registro real selecionado — cada um ja' aplica cenario de
+// venda/origem da entrada/transito ao vivo corretamente pro seu proprio emp_dep, so' depois os
+// resultados sao somados. Isso evita reimplementar essa logica toda pro caso combinado.
+function freshCombinado(registros){const partes=registros.map(r=>fresh(r));const somarCampo=campo=>somaOuNula(partes.map(p=>p[campo]));const movements={};for(const [k] of E.rows)movements[k]=Array.from({length:30},(_,i)=>partes.reduce((total,p)=>total+(p.movements[k][i]||0),0));const openingSomado=partes.reduce((total,p)=>total+p.opening,0);return{baseline:{version:1,id:'combinado:'+registros.map(r=>r.id).sort().join(','),date:D.date,sourceRevision:D.revision,name:'Minha simulação (combinada)',opening:openingSomado,lastro:somarCampo('lastro'),min:somarCampo('min'),mid:somarCampo('mid'),max:somarCampo('max'),capacity:somarCampo('capacity'),clamp:false,scenario:partes[0]?.scenario||'LE',switchIndex:partes[0]?.switchIndex??0,movements},openingSomado};}
+function select(){
+ const registros=registrosAtuais().filter(r=>r.product===$('product').value);
+ modoCombinado=registros.length>1;
+ if(!registros.length)record=undefined;
+ else if(!modoCombinado)record=registros[0];
  // Filtro de regiao pode deixar a lista de bases vazia (ex.: nao ha base dessa regiao pra este login);
  // sem guarda, fresh(undefined) quebra o resto do render e trava a tela com os chips desatualizados.
- if(!record){for(const id of ['grid','cards','alerts','chart','semana-progresso'])$(id).innerHTML='';if($('bi-measures'))$('bi-measures').innerHTML='';message(baseAtual()?'Nenhuma base disponível para este filtro. Ajuste a região ou escolha outra base.':'Escolha cidade, depósito e produto acima para começar.');return;}
- baseline=fresh(record);state=structuredClone(baseline);try{const saved=localStorage.getItem(key());if(saved){const candidate=E.validate(JSON.parse(saved));if(candidate.id===record.id&&candidate.date===D.date){state=mergeSource(candidate,baseline);}}}catch{message('Cenário local inválido ou indisponível. Abertura original carregada.');}E.rows.find(r=>r[0]==='sale')[1]=({VMD:'Vendas · VMD reprojetada',LE:'Vendas · LE vigente',['Pedidos em tela']:'Vendas · Pedidos em tela',Real:'Vendas · Faturado (Real)',['Disp MIS']:'Vendas · Disp. MIS'})[state.scenario]||'Vendas';premises();render(true);}
+ if(!registros.length){for(const id of ['grid','cards','alerts','chart','semana-progresso'])$(id).innerHTML='';if($('bi-measures'))$('bi-measures').innerHTML='';message(registrosAtuais().length?'Nenhuma base disponível para este filtro. Ajuste a região ou escolha outra base.':'Escolha cidade, depósito(s), empresa(s) e produto acima para começar.');return;}
+ if(modoCombinado){const {baseline:combinada,openingSomado}=freshCombinado(registros);record=construirRegistroCombinado(registros,openingSomado);baseline=combinada;}
+ else baseline=fresh(record);
+ state=structuredClone(baseline);try{const saved=localStorage.getItem(key());if(saved){const candidate=E.validate(JSON.parse(saved));if(candidate.id===record.id&&candidate.date===D.date){state=mergeSource(candidate,baseline);}}}catch{message('Cenário local inválido ou indisponível. Abertura original carregada.');}E.rows.find(r=>r[0]==='sale')[1]=({VMD:'Vendas · VMD reprojetada',LE:'Vendas · LE vigente',['Pedidos em tela']:'Vendas · Pedidos em tela',Real:'Vendas · Faturado (Real)',['Disp MIS']:'Vendas · Disp. MIS'})[state.scenario]||'Vendas';premises();render(true);}
 // Politica de estoque (abertura/lastro/minimo/medio/maximo/capacidade): fixa, vem da planilha e nao
 // e' editavel pela simulacao (pedido da usuaria, 2026-09-28) — so os movimentos (entradas/saidas)
 // continuam editaveis, na tabela e no editor por dia.
@@ -229,7 +259,13 @@ document.addEventListener('focusin',e=>{const el=e.target.closest('[data-chart-d
 document.addEventListener('pointerdown',e=>{const el=e.target.closest('[data-chart-day]');if(el)mostrarPopupGrafico(el);else if(!$('chart-popover').contains(e.target))fecharPopupGrafico();});
 document.addEventListener('pointerout',e=>{if(e.target.closest('[data-chart-day]')&&document.activeElement!==e.target)fecharPopupGrafico();});
 function alerts(result){const items=['O histórico de vendas realizadas não é carregado nesta versão; as vendas futuras usam o LE vigente e, hoje, o maior entre o LE e os pedidos do SAP.',`Valores futuros carregados das fontes (${D.bi.extractedAt.replace('T',' ')}). Portal carregado até ${D.bi.coverage.portal_max.slice(0,10)}; cadências MIS até ${D.bi.coverage.cadencia_max.slice(0,10)}.`];if(parameters.slice(1).some(([k])=>state[k]===null))items.push('A planilha de política tem campos vazios neste recorte; os alertas correspondentes estão indisponíveis.');result.forEach((r,i)=>{const low=Math.min(r.opening,r.close),high=Math.max(r.opening,r.close),a=[];if(low<0)a.push(`déficit físico de ${fmt(-low)} m³`);if(state.lastro!==null&&low<state.lastro)a.push('estoque abaixo do lastro');if(state.min!==null&&low<=state.min)a.push(`no mínimo ou abaixo em ${fmt(state.min-low)} m³`);if(state.capacity!==null&&high>state.capacity)a.push(`capacidade excedida em ${fmt(high-state.capacity)} m³`);else if(state.max!==null&&high>state.max)a.push('acima do estoque máximo');if(a.length)items.push(label(i)+': '+a.join(' • '));});$('alerts').innerHTML=items.map(s=>`<div class="alert">${esc(s)}</div>`).join('');}
-$('cidade').onchange=()=>{refreshDepositoOptions();products();};$('deposito').onchange=()=>{refreshEmpresaOptions();products();};$('empresa').onchange=products;$('product').onchange=select;
+// Selecionar pelo <select> nativo sempre colapsa pra 1 so' (troca o Set inteiro) — e' a ferramenta de
+// "escolher so' esse"; os chips (abaixo) sao quem permite ligar varios ao mesmo tempo sem perder os
+// outros ja ativos.
+$('cidade').onchange=()=>{depositosAtivos=new Set();empresasAtivas=new Set();refreshDepositoOptions();products();};
+$('deposito').onchange=()=>{depositosAtivos=$('deposito').value?new Set([$('deposito').value]):new Set();refreshEmpresaOptions();products();};
+$('empresa').onchange=()=>{empresasAtivas=$('empresa').value?new Set([$('empresa').value]):new Set();products();};
+$('product').onchange=select;
 $('grid').oninput=e=>{const input=e.target,k=input.dataset.row;if(!k)return;if(!input.validity.valid||input.value===''||!Number.isFinite(input.valueAsNumber))return;try{E.setMovement(state,k,+input.dataset.day,input.valueAsNumber);}catch(err){message(err.message);input.value=Math.round(state.movements[k][+input.dataset.day]);return;}persist();render();};
 $('grid').addEventListener('focusout',e=>{const input=e.target;if(input.dataset.row)input.value=Math.round(state.movements[input.dataset.row][+input.dataset.day]);});
 $('clamp').onchange=()=>{state.clamp=$('clamp').checked;persist();render();};$('name').onchange=()=>{state.name=$('name').value;persist();};
@@ -238,7 +274,7 @@ $('clamp').onchange=()=>{state.clamp=$('clamp').checked;persist();render();};$('
 // Restaurar, junto da tabela) — mesma acao, so' que exposta num unico lugar agora. Exportar CSV/Salvar
 // JSON/Abrir cenario (arquivo local) nao tem mais botao na tela; o Firebase ("Salvar na equipe") segue
 // disponivel pra compartilhar cenarios com a equipe.
-function restaurarDaFonte(){$('entrada').value='auto';baseline=fresh(record);state=structuredClone(baseline);persist();premises();render(true);message('Recorte restaurado aos dados da fonte (origem da entrada voltou para Fontes automáticas).');}
+function restaurarDaFonte(){$('entrada').value='auto';if(modoCombinado){const registros=registrosAtuais().filter(r=>r.product===$('product').value);const {baseline:combinada,openingSomado}=freshCombinado(registros);record=construirRegistroCombinado(registros,openingSomado);baseline=combinada;}else baseline=fresh(record);state=structuredClone(baseline);persist();premises();render(true);message('Recorte restaurado aos dados da fonte (origem da entrada voltou para Fontes automáticas).');}
 $('entrada').onchange=()=>{persist();select();};
 $('reset-tabela').onclick=restaurarDaFonte;
 // Filtro de regiao (SP/MG+RJ/Centro-Oeste): so aparece quando ha SIM_CLOUD.regionOf (versao hospedada
@@ -250,10 +286,19 @@ function cidadesPermitidas(){const permitidas=new Set(basesPermitidas());return 
 function depositosPermitidos(cidade){const permitidas=new Set(basesPermitidas());return [...new Set(D.records.filter(r=>permitidas.has(r.base)&&cidadeDe(r)===cidade).map(depositoDe))].sort((a,b)=>a.localeCompare(b,'pt-BR'));}
 // Empresa (3o nivel — pedido da usuaria, 2026-10-02): cidade+deposito sozinhos nao sao unicos, existem
 // 7 combinacoes reais ambiguas no cadastro (ex.: Betim+POTENCIAL tem 3 bases: CHARRUA/Nexta/SIM).
-function empresasPermitidas(cidade,deposito){const permitidas=new Set(basesPermitidas());return [...new Set(D.records.filter(r=>permitidas.has(r.base)&&cidadeDe(r)===cidade&&depositoDe(r)===deposito).map(empresaDe))].sort((a,b)=>a.localeCompare(b,'pt-BR'));}
+// `depositos` aceita 1+ depositos (Set ou array) — pedido da usuaria, 2026-10-05: empresa disponivel e'
+// a uniao das empresas de TODOS os depositos ativos, nao so' de um.
+function empresasPermitidas(cidade,depositos){const permitidas=new Set(basesPermitidas()),depositosSet=depositos instanceof Set?depositos:new Set(depositos);return [...new Set(D.records.filter(r=>permitidas.has(r.base)&&cidadeDe(r)===cidade&&depositosSet.has(depositoDe(r))).map(empresaDe))].sort((a,b)=>a.localeCompare(b,'pt-BR'));}
 function refreshBaseOptions(){const cidadeAnterior=$('cidade').value;options($('cidade'),['',...cidadesPermitidas()]);$('cidade').options[0].textContent='Selecione a cidade';if([...$('cidade').options].some(o=>o.value===cidadeAnterior))$('cidade').value=cidadeAnterior;refreshDepositoOptions();}
-function refreshDepositoOptions(){const depositoAnterior=$('deposito').value,cidade=$('cidade').value;options($('deposito'),cidade?['',...depositosPermitidos(cidade)]:['']);$('deposito').options[0].textContent='Selecione o depósito';if([...$('deposito').options].some(o=>o.value===depositoAnterior))$('deposito').value=depositoAnterior;refreshEmpresaOptions();}
-function refreshEmpresaOptions(){const empresaAnterior=$('empresa').value,cidade=$('cidade').value,deposito=$('deposito').value;options($('empresa'),cidade&&deposito?['',...empresasPermitidas(cidade,deposito)]:['']);$('empresa').options[0].textContent='Selecione a empresa';if([...$('empresa').options].some(o=>o.value===empresaAnterior))$('empresa').value=empresaAnterior;if(typeof renderChips==='function')renderChips();}
+// O <select> nativo so' mostra 1 valor por vez; com exatamente 1 ativo reflete ele normal, com 0 ou 2+
+// fica na opcao vazia (os chips, que suportam multi-selecao de verdade, mostram o estado real nesse caso).
+function sincronizarSelectMultiplo(select,ativos){select.value=ativos.size===1?[...ativos][0]:'';}
+// Pedido da usuaria, 2026-10-05: se a cidade (ou cidade+depositos) so' tem 1 opcao possivel de
+// deposito/empresa, preenche sozinho (ex.: Barra do Garcas so' tem 1 deposito e 1 empresa — nao faz
+// sentido pedir pra escolher). Preserva selecoes anteriores que continuam validas (mesmo esquema que ja
+// existia pro <select> simples, so' que agora sobre um Set em vez de 1 valor so').
+function refreshDepositoOptions(){const cidade=$('cidade').value;const permitidos=cidade?depositosPermitidos(cidade):[];options($('deposito'),['',...permitidos]);$('deposito').options[0].textContent='Selecione o depósito';const permitidosSet=new Set(permitidos);depositosAtivos=new Set([...depositosAtivos].filter(d=>permitidosSet.has(d)));if(!depositosAtivos.size&&permitidos.length===1)depositosAtivos=new Set(permitidos);sincronizarSelectMultiplo($('deposito'),depositosAtivos);refreshEmpresaOptions();}
+function refreshEmpresaOptions(){const cidade=$('cidade').value;const permitidos=cidade&&depositosAtivos.size?empresasPermitidas(cidade,depositosAtivos):[];options($('empresa'),['',...permitidos]);$('empresa').options[0].textContent='Selecione a empresa';const permitidosSet=new Set(permitidos);empresasAtivas=new Set([...empresasAtivas].filter(e=>permitidosSet.has(e)));if(!empresasAtivas.size&&permitidos.length===1)empresasAtivas=new Set(permitidos);sincronizarSelectMultiplo($('empresa'),empresasAtivas);if(typeof renderChips==='function')renderChips();}
 // So aparece pra quem enxerga mais de uma regiao (administrador/leitura); regional ja so ve a propria
 // regiao, entao filtrar por outra sempre daria lista vazia.
 const perfilVeTudo=window.SIM_AUTH?.profile?.admin===true||window.SIM_AUTH?.profile?.perfil==='leitura';
