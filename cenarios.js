@@ -124,7 +124,7 @@
   const vivo=D.transitoAoVivo?.[record.bi?.emp_dep]?.[record.bi?.material]?.[day(index)];
   const viagens=(vivo?.viagens||[]).filter(v=>v.modal==='fob');
   if(!viagens.length)return `<strong>Trânsito FOB · ${dateLabel(day(index))}</strong><p>Sem detalhe de viagem ao vivo pra este dia.</p>`;
-  const linha=v=>`<div><dt>${esc(v.transportador||'Transportador não informado')}${v.placa?' · '+esc(v.placa):''}</dt><dd>${fmt(v.volume)} m³${v.status?' · '+esc(v.status):''}${v.chegadaReal?' · chegou '+new Date(v.chegadaReal).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):v.eta?' · ETA '+new Date(v.eta).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</dd></div>`;
+  const linha=v=>`<div><dt>${esc(v.transportador||'Transportador não informado')}${v.placa?' · '+esc(v.placa):''}</dt><dd>${fmt(v.volume)} m³${v.status?' · '+esc(v.status):''}${v.status==='Em Andamento'&&v.kmRestante!=null?' · '+fmt(v.kmRestante)+' km restantes':''}${v.chegadaReal?' · chegou '+new Date(v.chegadaReal).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):v.eta?' · ETA '+new Date(v.eta).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</dd></div>`;
   return `<strong>Trânsito FOB · ${dateLabel(day(index))}</strong><dl>${viagens.map(linha).join('')}</dl><p>${viagens.length} viagem(ns) · total ${fmt(viagens.reduce((s,v)=>s+v.volume,0))} m³</p>`;
  }
  function showPopup(input){
