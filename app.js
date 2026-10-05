@@ -100,7 +100,12 @@ function empresaDe(registro){return registro.bi?.empresa||'';}
 // Registros batendo cidade + QUALQUER deposito ativo + QUALQUER empresa ativa (os Sets, nao mais um
 // unico valor). Com 1 so' em cada Set, e' exatamente o que baseAtual() fazia antes.
 function registrosAtuais(){const cidade=$('cidade').value;if(!cidade||!depositosAtivos.size||!empresasAtivas.size)return[];return D.records.filter(r=>cidadeDe(r)===cidade&&depositosAtivos.has(depositoDe(r))&&empresasAtivas.has(empresaDe(r)));}
-function products(){options($('product'),[...new Set(registrosAtuais().map(r=>r.product))]);select();}
+// Pedido da usuaria, 2026-10-05 (bug achado por ela): ligar/desligar 1 chip de deposito/empresa
+// reconstroi a lista de produtos, e sem preservar a selecao anterior o <select> pula sozinho pro
+// 1o produto da nova lista (ex.: de "Diesel S10 A" pro "Biodiesel") sem avisar — ai os numeros da
+// tela pareciam errados, mas era outro produto sendo mostrado. Mesmo padrao ja usado em
+// refreshDepositoOptions/refreshEmpresaOptions: so' troca se o produto atual nao existir mais.
+function products(){const produtoAnterior=$('product').value;options($('product'),[...new Set(registrosAtuais().map(r=>r.product))]);if(produtoAnterior&&[...$('product').options].some(o=>o.value===produtoAnterior))$('product').value=produtoAnterior;select();}
 function somaOuNula(valores){const presentes=valores.filter(v=>v!==null&&v!==undefined);return presentes.length?presentes.reduce((a,b)=>a+b,0):null;}
 // So' os campos realmente lidos de record.bi.days fora do fresh() (VMD/Pedidos em tela nas linhas de
 // referencia da tabela) — tudo que alimenta a simulacao de verdade (fob/cif/pump/sale/...) ja vem
