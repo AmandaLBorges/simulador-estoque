@@ -125,10 +125,16 @@
  // (CIF o fornecedor contrata o transporte, a gente nao sabe quem e' — "cif deixa quieto"). Dado vem
  // de D.transitoAoVivo (publicar_transito_ao_vivo.py), ja' trazido junto do resto da carga.
  function conteudoPopupFob(index){
-  const vivo=D.transitoAoVivo?.[record.bi?.emp_dep]?.[record.bi?.material]?.[day(index)];
-  const viagens=(vivo?.viagens||[]).filter(v=>v.modal==='fob');
+  // Modo combinado (pedido da usuaria, 2026-10-05: "tem como trazer no fob pra qual deposito esta
+  // direcionado?"): record.bi.emp_dep e' null (nao existe 1 so'), entao busca o transito ao vivo de
+  // CADA registro real por tras da soma (_registrosCombinados) e junta tudo, marcando de qual
+  // deposito+empresa cada viagem e' — senao some tudo igual aconteceria no modo normal (1 emp_dep so').
+  const combinados=record._registrosCombinados;
+  const viagens=combinados
+   ?combinados.flatMap(r=>{const vivo=D.transitoAoVivo?.[r.bi?.emp_dep]?.[r.bi?.material]?.[day(index)];return (vivo?.viagens||[]).filter(v=>v.modal==='fob').map(v=>({...v,_origem:`${depositoDe(r)} · ${empresaDe(r)}`}));})
+   :(D.transitoAoVivo?.[record.bi?.emp_dep]?.[record.bi?.material]?.[day(index)]?.viagens||[]).filter(v=>v.modal==='fob');
   if(!viagens.length)return `<strong>Trânsito FOB · ${dateLabel(day(index))}</strong><p>Sem detalhe de viagem ao vivo pra este dia.</p>`;
-  const linha=v=>`<div><dt>${esc(v.transportador||'Transportador não informado')}${v.placa?' · '+esc(v.placa):''}</dt><dd>${fmt(v.volume)} m³${v.status?' · '+esc(v.status):''}${v.status==='Em Andamento'&&v.kmRestante!=null?' · '+fmt(v.kmRestante)+' km restantes':''}${v.chegadaReal?' · chegou '+new Date(v.chegadaReal).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):v.eta?' · ETA '+new Date(v.eta).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</dd></div>`;
+  const linha=v=>`<div><dt>${esc(v.transportador||'Transportador não informado')}${v.placa?' · '+esc(v.placa):''}${v._origem?' · '+esc(v._origem):''}</dt><dd>${fmt(v.volume)} m³${v.status?' · '+esc(v.status):''}${v.status==='Em Andamento'&&v.kmRestante!=null?' · '+fmt(v.kmRestante)+' km restantes':''}${v.chegadaReal?' · chegou '+new Date(v.chegadaReal).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):v.eta?' · ETA '+new Date(v.eta).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):''}</dd></div>`;
   return `<strong>Trânsito FOB · ${dateLabel(day(index))}</strong><dl>${viagens.map(linha).join('')}</dl><p>${viagens.length} viagem(ns) · total ${fmt(viagens.reduce((s,v)=>s+v.volume,0))} m³</p>`;
  }
  function showPopup(input){
