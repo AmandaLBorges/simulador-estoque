@@ -33,7 +33,11 @@
  const sourceDetails=$('source').closest('details');
  for(const id of ['bi-loaded','auto-status','scenario-note'])sourceDetails.append($(id));
  document.querySelector('.product-options').hidden=true;
- document.querySelector('.base-options').hidden=true;
+ // .base-options (chips de cidade/deposito/empresa) NAO fica mais escondido aqui (pedido da usuaria,
+ // 2026-10-05, "onde fica o botao? nao encontrei!") — antes era escondido sempre, mesmo antes de ter
+ // isso que mostrar; agora precisa continuar acessivel DEPOIS da selecao tambem, porque e' onde a
+ // selecao multipla de deposito/empresa acontece (os chips sao o unico jeito de marcar mais de 1).
+ // Fica dentro de um <details> recolhido por padrao, entao nao polui a tela de quem nao usa.
  selector.parentElement.hidden=true;
  // Botoes de cenario: ficam DENTRO da tabela, numa coluna propria a esquerda, alinhados (rowspan) com
  // as linhas que cada grupo controla — pedido da usuaria, 2026-10-02: "chegue um ponto a tabela pra
