@@ -183,11 +183,11 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  // transferIn; saida: sale/transferOut) recebe um <th rowspan> vazio que o cenarios.js preenche depois
  // (ver #entrada-controls-cell/#scenario-controls-cell); as demais linhas do mesmo grupo nao emitem
  // celula nenhuma nessa coluna, porque o rowspan da 1a linha ja' a ocupa.
- const linhasVisiveis=E.rows.filter(([k])=>!['received','planned'].includes(k));
+ const linhasVisiveis=E.rows.filter(([k])=>!['received','planned','transferIn'].includes(k));
  const entradaKeys=linhasVisiveis.filter(([,,sign])=>sign>0).map(([k])=>k);
  const saidaKeys=linhasVisiveis.filter(([,,sign])=>sign<0).map(([k])=>k);
  for(const [k,l,sign] of E.rows){
-  if(['received','planned'].includes(k))continue;
+  if(['received','planned','transferIn'].includes(k))continue;
   if(k==='sale'){
    html+=infoRow('VMD reprojetada',i=>record.bi?.days[day(i)]?.vmd);
    html+=infoRow('LE vigente (sem reprojeção)',i=>record.bi?.semana?.porDia?.[day(i)]?.le);
@@ -233,7 +233,6 @@ const movSeries=[
  ['received','Recebimentos','#7DD3C0',i=>i>=0?state.movements.received[i]:null],
  ['pump','Prog. Bombeio','#2DD4BF',i=>i>=0?state.movements.pump[i]:null],
  ['progRoad','Prog. Rodoviário','#5EEAD4',i=>i>=0?(record.bi?.days[day(i)]?.progRoad??null):null],
- ['transferIn','Transf. entrada','#94A3B8',i=>i>=0?state.movements.transferIn[i]:null],
  ['fob','Trânsito FOB','#64748B',i=>i>=0?state.movements.fob[i]:null],
  ['cif','Trânsito CIF','#FDE68A',i=>i>=0?state.movements.cif[i]:null],
  ['vmd','Média Vendas','#E5E7EB',i=>i>=0?(record.bi?.days[day(i)]?.vmd??null):null],
