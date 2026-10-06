@@ -49,7 +49,7 @@ function fresh(r,cenarioForcado){
   // diferente) e fora do cenario 'Inbound + MIS' (que tem sua propria fonte de FOB/CIF, loaded.inboundMis).
   if(future&&entrada==='auto'&&scenario!=='Inbound + MIS'){
    const vivo=D.transitoAoVivo?.[r.bi?.emp_dep]?.[r.bi?.material]?.[day(i)];
-   if(vivo){movements.fob[i]=vivo.fob??0;movements.cif[i]=vivo.cif??0;}
+   if(vivo&&(vivo.fob!=null||vivo.cif!=null)){movements.fob[i]=vivo.fob??0;movements.cif[i]=vivo.cif??0;}
   }
   // Datas anteriores usam a mesma base em todos os cenarios.
   if(!future)continue;
@@ -183,11 +183,11 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  // transferIn; saida: sale/transferOut) recebe um <th rowspan> vazio que o cenarios.js preenche depois
  // (ver #entrada-controls-cell/#scenario-controls-cell); as demais linhas do mesmo grupo nao emitem
  // celula nenhuma nessa coluna, porque o rowspan da 1a linha ja' a ocupa.
- const linhasVisiveis=E.rows.filter(([k])=>!['received','planned','transferIn'].includes(k));
+ const linhasVisiveis=E.rows.filter(([k])=>!['received','planned','transferIn','transferOut'].includes(k));
  const entradaKeys=linhasVisiveis.filter(([,,sign])=>sign>0).map(([k])=>k);
  const saidaKeys=linhasVisiveis.filter(([,,sign])=>sign<0).map(([k])=>k);
  for(const [k,l,sign] of E.rows){
-  if(['received','planned','transferIn'].includes(k))continue;
+  if(['received','planned','transferIn','transferOut'].includes(k))continue;
   if(k==='sale'){
    html+=infoRow('VMD reprojetada',i=>record.bi?.days[day(i)]?.vmd);
    html+=infoRow('LE vigente (sem reprojeção)',i=>record.bi?.semana?.porDia?.[day(i)]?.le);
