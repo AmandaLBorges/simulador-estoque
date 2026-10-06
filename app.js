@@ -157,6 +157,16 @@ function diasAtrasoAbertura(){
 }
 function premises(){$('name').value=state.name;$('clamp').checked=state.clamp;$('premises').innerHTML=parameters.map(([k,l])=>`<label>${l}<input type="number" readonly data-param="${k}" aria-label="${l}" value="${state[k]===null?'':Math.round(state[k])}" placeholder="Ausente na fonte" title="Valor fixo, carregado da planilha de política."><small>${k==='opening'?(aberturaAtrasada()?`⚠ Abertura de ${new Date(record.aberturaEm+'T12:00:00').toLocaleDateString('pt-BR')} (não é de hoje)`:'Abertura importada'):`Política: ${fmt(baseline[k])} m³`}</small></label>`).join('');}
 function history(i){return D.history?.[day(i)]?.[record.base+'|'+record.product];}
+// Dias passados da grade: o que realmente aconteceu (mesmas fontes do BI): abertura da planilha do dia,
+// vendas realizadas (VA05 fornecido), FOB/CIF realizados (trânsito publicado) e fechamento = abertura do dia seguinte.
+function transitoPassado(i,k){const t=D.transitoAoVivo?.[record.bi?.emp_dep]?.[record.bi?.material]?.[day(i)];return t?.[k]??null;}
+function valorPassado(k,i,result){
+ if(k==='opening')return history(i)?.opening??null;
+ if(k==='outgoing')return history(i)?.sale??null;
+ if(k==='incoming'){const f=transitoPassado(i,'fob'),c=transitoPassado(i,'cif');return f==null&&c==null?null:(f||0)+(c||0);}
+ if(k==='close'){const prox=i+1===0?result[0]?.opening:history(i+1)?.opening;return prox??null;}
+ return null;
+}
 function status(v){return E.stockBand(v,state);}
 function render(rebuild=false){const result=E.calculate(state,n),original=E.calculate(baseline,n);
  $('source').textContent=`Abertura real de ${label(0)}/${D.date.slice(0,4)} • ${record.base} • ${record.product}. Próximos 14 dias preenchidos com o LE vigente, FOB/CIF e programação MIS. Extração: ${D.bi.extractedAt.replace('T',' ')}. Todos os volumes em m³.`;
@@ -166,7 +176,7 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  const low=Math.min(...result.map(x=>Math.min(x.opening,x.close))),last=result.at(-1).close;
  const first=result.findIndex(x=>['danger','warn'].includes(status(x.opening))||['danger','warn'].includes(status(x.close)));
  $('cards').innerHTML=[['Abertura de referência',fmt(state.opening),'m³ · início do dia'],['Fechamento ao fim de 14 dias',fmt(last),`m³ · diferença de ${fmt(last-original.at(-1).close)} vs. original`],['Menor estoque no período',fmt(low),'m³ · abertura e fechamento'],['Primeira atenção',first<0?'Sem alerta de limite':label(first),first<0?'Verifique os limites e campos não preenchidos':'Confira os pontos de atenção abaixo']].map(([title,value,sub],i)=>`<article class="card"><small>${title}</small><strong class="${i===2?status(low):''}">${value}</strong><em>${sub}</em></article>`).join('');
- const offsets=Array.from({length:n},(_,i)=>i);
+ const offsets=Array.from({length:5+n},(_,i)=>i-5);
  if(rebuild){let html='<thead><tr><th class="row-controls"></th><th class="row-label">Movimento / m³</th>'+offsets.map(i=>`<th class="${i<0?'history':i===0?'today':''}">${label(i)}<br><small>${i<0?'Histórico':i===0?'Referência':'Simulação'}</small></th>`).join('')+'</tr></thead><tbody>';
  const outputRow=(key,name)=>`<tr class="total"><th class="row-controls"></th><th class="row-label">${name}</th>${offsets.map(i=>`<td data-result="${key}" data-day="${i}"></td>`).join('')}</tr>`;
  html+=outputRow('opening','Estoque inicial · abertura');html+=outputRow('lastro','Lastro mínimo');html+=outputRow('openingNet','Abertura menos lastro');
@@ -174,7 +184,7 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  // da linha editavel que realmente debita do estoque — pedido da usuaria, 2026-09-30: ver as 4 fontes
  // (VMD reprojetada, LE original sem reprojecao, Pedidos em tela = VA05 total do dia/todos os status,
  // faturamento real) fixas, lado a lado com o que foi aplicado (que o usuario escolhe puxar ou digitar).
- const infoRow=(titulo,getter)=>`<tr class="info-row"><th class="row-controls"></th><th class="row-label">↳ ${titulo}</th>${offsets.map(i=>`<td class="history${i===0?' today':''}">${i<0?'—':fmt(getter(i))}</td>`).join('')}</tr>`;
+ const infoRow=(titulo,getter)=>`<tr class="info-row"><th class="row-controls"></th><th class="row-label">↳ ${titulo}</th>${offsets.map(i=>`<td class="history${i===0?' today':''}">${fmt(getter(i))}</td>`).join('')}</tr>`;
  // Pedido da usuaria, 2026-10-01: "Recebimento adicional manual" e "Programação adicional manual"
  // tiradas da tabela (ficavam sempre zeradas, so' poluiam a visao). O calculo continua somando o que
  // ja estiver salvo nesses campos (E.rows/motor.js inalterado); so' nao aparecem mais como linha editavel.
@@ -197,14 +207,14 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
   }
   const controlCell=k===entradaKeys[0]?`<th rowspan="${entradaKeys.length}" class="row-controls" id="entrada-controls-cell"></th>`
    :k===saidaKeys[0]?`<th rowspan="${saidaKeys.length}" class="row-controls" id="scenario-controls-cell"></th>`:'';
-  html+=`<tr class="${sign>0?'entry':'exit'}">${controlCell}<th class="row-label">${sign>0?'+':'−'} ${l}</th>`+offsets.map(i=>i<0?`<td class="history${i===0?' today':''}" title="${k==='sale'?'Faturamento pendente de integração':'Informação histórica da fonte'}">${fmt(history(i)?.[k])}</td>`:`<td class="${i===0?'today':''}"><input type="number" step="any" min="0" data-row="${k}" data-day="${i}" aria-label="${l} ${label(i)}" value="${Math.round(state.movements[k][i])}" title="${esc(sourceNote(k,i))}"></td>`).join('')+'</tr>';
+  html+=`<tr class="${sign>0?'entry':'exit'}">${controlCell}<th class="row-label">${sign>0?'+':'−'} ${l}</th>`+offsets.map(i=>i<0?`<td class="history${i===0?' today':''}" title="${k==='sale'?'Faturamento pendente de integração':'Informação histórica da fonte'}">${fmt(['fob','cif'].includes(k)?transitoPassado(i,k):history(i)?.[k])}</td>`:`<td class="${i===0?'today':''}"><input type="number" step="any" min="0" data-row="${k}" data-day="${i}" aria-label="${l} ${label(i)}" value="${Math.round(state.movements[k][i])}" title="${esc(sourceNote(k,i))}"></td>`).join('')+'</tr>';
  }
  for(const [k,l] of [['incoming','Total de entradas'],['outgoing','Total de saídas']])html+=outputRow(k,l);
  $('grid').innerHTML=html+'</tbody>';}
  // Celula de abertura (dia 0) ganha um aviso visual quando a leitura nao e' de hoje — pedido da
  // usuaria, 2026-10-05: "mostra a ultima data que puxou... uma cor diferente pra mostrar que nao e'
  // a do dia". O detalhe de qual base exatamente (no combinado) fica no popup, ao passar o mouse/clicar.
- document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?(k==='opening'?history(i)?.opening:null):result[i][k];const ehAbertura=k==='opening'&&i===0,dias=ehAbertura?diasAtrasoAbertura():0;td.textContent=(dias>0?'⚠ ':'')+fmt(v);td.className=(i<0?'history ': '')+(i===0?'today ':'')+(dias>0?(dias>=DIAS_ABERTURA_GRAVE?'atrasada-grave ':'atrasada '):'')+(['opening','close','available'].includes(k)?(v==null?'':status(v)):'');});
+ document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?valorPassado(k,i,result):result[i][k];const ehAbertura=k==='opening'&&i===0,dias=ehAbertura?diasAtrasoAbertura():0;td.textContent=(dias>0?'⚠ ':'')+fmt(v);td.className=(i<0?'history ': '')+(i===0?'today ':'')+(dias>0?(dias>=DIAS_ABERTURA_GRAVE?'atrasada-grave ':'atrasada '):'')+(['opening','close','available'].includes(k)?(v==null?'':status(v)):'');});
  document.querySelectorAll('[data-row]').forEach(input=>input.parentElement.classList.toggle('edited',state.movements[input.dataset.row][+input.dataset.day]!==baseline.movements[input.dataset.row][+input.dataset.day]));
  chart(result,original,Array.from({length:7+n},(_,i)=>i-7));alerts(result);
 }
@@ -246,21 +256,21 @@ const ENTRADAS_BLOCO=['received','pump','progRoad','fob','cif'];
 const valorMov=(k,i)=>(movSeries.find(m=>m[0]===k)[3](i))||0;
 const topoPilha=(result,i)=>Math.max(result[i]?.opening??0,0)+ENTRADAS_BLOCO.reduce((s,k)=>s+valorMov(k,i),0);
 let chartContext=null;
-function chart(result,original,offsets){chartContext={result,offsets};const W=1200,H=250,L=60,R=20,T=16,B=32;const movValores=movSeries.flatMap(([,,,f])=>offsets.map(f)).filter(v=>v!=null);const pilhas=offsets.filter(i=>i>=0).map(i=>topoPilha(result,i));const values=result.flatMap(x=>[x.opening,x.close]).concat(original.map(x=>x.close),offsets.filter(i=>i<0).map(i=>history(i)?.opening).filter(v=>v!=null),parameters.slice(1).map(([k])=>state[k]).filter(v=>v!==null),movValores,pilhas,[0]);const lo=Math.min(...values),hi=Math.max(...values),span=Math.max(hi-lo,1),y=v=>T+(hi+span*.1-v)/(span*1.2)*(H-T-B),x=i=>L+(i+7+.5)*(W-L-R)/offsets.length;
+function chart(result,original,offsets){chartContext={result,offsets};let rot='';const W=1200,H=250,L=60,R=20,T=16,B=32;const movValores=movSeries.flatMap(([,,,f])=>offsets.map(f)).filter(v=>v!=null);const pilhas=offsets.filter(i=>i>=0).map(i=>topoPilha(result,i));const values=result.flatMap(x=>[x.opening,x.close]).concat(original.map(x=>x.close),offsets.filter(i=>i<0).map(i=>history(i)?.opening).filter(v=>v!=null),parameters.slice(1).map(([k])=>state[k]).filter(v=>v!==null),movValores,pilhas,[0]);const lo=Math.min(...values),hi=Math.max(...values),span=Math.max(hi-lo,1),y=v=>T+(hi+span*.1-v)/(span*1.2)*(H-T-B),x=i=>L+(i+7+.5)*(W-L-R)/offsets.length;
  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Histórico de abertura e projeção de estoque em metros cúbicos"><rect x="${L}" y="0" width="${x(0)-L-(W-L-R)/offsets.length/2}" height="${H-B}" fill="#ffffff04"/>`;
  for(let j=0;j<5;j++){const v=lo+(hi-lo)*j/4;svg+=`<path d="M${L} ${y(v)}H${W-R}" stroke="#314A32"/><text x="${L-8}" y="${y(v)+4}" fill="#7FA069" text-anchor="end" font-size="11">${fmt(v)}</text>`;}
  for(const [k,color,dash] of [['min','#FF6B5F','4 5'],['mid','#9CA3AF','4 5'],['lastro','#F97316','4 5'],['max','#8DC830','4 5'],['capacity','#38BDF8','']])if(state[k]!==null)svg+=`<path d="M${L} ${y(state[k])}H${W-R}" stroke="${color}" stroke-width="${k==='capacity'?2:1}" stroke-dasharray="${dash}"><title>${k}: ${fmt(state[k])} m³</title></path>`;
  const today=simulationToday();const hojeI=offsets.find(i=>day(i)===today);if(hojeI!=null)svg+=`<rect x="${x(hojeI)-(W-L-R)/offsets.length/2}" y="0" width="${(W-L-R)/offsets.length}" height="${H-B}" fill="#EEFE7A" opacity=".08"><title>Hoje</title></rect>`;
- for(const i of offsets){const v=i<0?history(i)?.opening:result[i].opening;if(v!=null){const barTop=Math.min(y(v),y(0)),cor=i<0?'#527568':status(v)==='danger'?'#FF6B5F':status(v)==='warn'?'#F97316':day(i)===today?'#9CA3AF':'#14B8A6';svg+=`<rect x="${x(i)-12}" y="${barTop}" width="24" height="${Math.max(1,Math.abs(y(v)-y(0)))}" fill="${cor}" opacity=".9"><title>${label(i)} · Abertura: ${fmt(v)} m³</title></rect>`;const rotulo=fmt(v),largura=Math.max(26,rotulo.length*7+10),comPilha=i>=0&&topoPilha(result,i)>Math.max(v,0),ry=comPilha?barTop+4:barTop-22;svg+=`<rect x="${x(i)-largura/2}" y="${ry}" width="${largura}" height="17" rx="4" fill="#EAF6E8" opacity=".92"/><text x="${x(i)}" y="${ry+12}" text-anchor="middle" fill="#14210F" font-size="11" font-weight="700">${rotulo}</text>`;}svg+=`<text x="${x(i)}" y="${H-8}" text-anchor="middle" fill="${day(i)===today?'#EEFE7A':'#BFD4A8'}" font-size="11" font-weight="${day(i)===today?'700':'400'}">${label(i)}</text>`;}
+ for(const i of offsets){const v=i<0?history(i)?.opening:result[i].opening;if(v!=null){const barTop=Math.min(y(v),y(0)),cor=i<0?'#527568':status(v)==='danger'?'#FF6B5F':status(v)==='warn'?'#F97316':day(i)===today?'#9CA3AF':'#14B8A6';svg+=`<rect x="${x(i)-12}" y="${barTop}" width="24" height="${Math.max(1,Math.abs(y(v)-y(0)))}" fill="${cor}" opacity=".9"><title>${label(i)} · Abertura: ${fmt(v)} m³</title></rect>`;const rotulo=fmt(v),largura=Math.max(26,rotulo.length*7+10),comPilha=i>=0&&topoPilha(result,i)>Math.max(v,0),ry=comPilha?barTop+4:barTop-22;rot+=`<rect x="${x(i)-largura/2}" y="${ry}" width="${largura}" height="17" rx="4" fill="#EAF6E8" opacity=".92"/><text x="${x(i)}" y="${ry+12}" text-anchor="middle" fill="#14210F" font-size="11" font-weight="700">${rotulo}</text>`;}svg+=`<text x="${x(i)}" y="${H-8}" text-anchor="middle" fill="${day(i)===today?'#EEFE7A':'#BFD4A8'}" font-size="11" font-weight="${day(i)===today?'700':'400'}">${label(i)}</text>`;}
  for(const [series,color,dash] of [[original,'#7FA069','5 5'],[result,'#EEFE7A','']])svg+=`<polyline points="${series.map((v,i)=>`${x(i)},${y(v.close)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2.5" stroke-dasharray="${dash}"/>`;
- for(const i of offsets.filter(i=>i>=0)){let cum=Math.max(result[i]?.opening??0,0);for(const k of ENTRADAS_BLOCO){const [,nome,cor,valorEm]=movSeries.find(m=>m[0]===k);const v=valorEm(i)||0;if(v<=0)continue;svg+=`<rect x="${x(i)-12}" y="${y(cum+v)}" width="24" height="${Math.max(1,y(cum)-y(cum+v))}" fill="${cor}" opacity=".85"><title>${label(i)} · ${nome}: ${fmt(v)} m³</title></rect>`;if(y(cum)-y(cum+v)>=14)svg+=`<text x="${x(i)}" y="${(y(cum)+y(cum+v))/2+4}" text-anchor="middle" font-size="10" font-weight="700" fill="#0B1A0E">${fmt(v)}</text>`;cum+=v;}if(cum>Math.max(result[i]?.opening??0,0))svg+=`<text x="${x(i)}" y="${y(cum)-6}" text-anchor="middle" font-size="11" font-weight="700" fill="#EAF6E8">${fmt(cum-Math.max(result[i]?.opening??0,0))}</text>`;}
+ for(const i of offsets.filter(i=>i>=0)){let cum=Math.max(result[i]?.opening??0,0);for(const k of ENTRADAS_BLOCO){const [,nome,cor,valorEm]=movSeries.find(m=>m[0]===k);const v=valorEm(i)||0;if(v<=0)continue;svg+=`<rect x="${x(i)-12}" y="${y(cum+v)}" width="24" height="${Math.max(1,y(cum)-y(cum+v))}" fill="${cor}" opacity=".85"><title>${label(i)} · ${nome}: ${fmt(v)} m³</title></rect>`;if(y(cum)-y(cum+v)>=14)rot+=`<text x="${x(i)}" y="${(y(cum)+y(cum+v))/2+4}" text-anchor="middle" font-size="10" font-weight="700" fill="#0B1A0E">${fmt(v)}</text>`;cum+=v;}if(cum>Math.max(result[i]?.opening??0,0))rot+=`<text x="${x(i)}" y="${y(cum)-6}" text-anchor="middle" font-size="11" font-weight="700" fill="#EAF6E8">${fmt(cum-Math.max(result[i]?.opening??0,0))}</text>`;}
  for(const [chave,nome,cor,valorEm] of movSeries.filter(m=>!ENTRADAS_BLOCO.includes(m[0]))){const pontos=offsets.map(i=>[i,valorEm(i)]).filter(([,v])=>v!=null);if(!pontos.length)continue;svg+=`<polyline points="${pontos.map(([i,v])=>`${x(i)},${y(v)}`).join(' ')}" fill="none" stroke="${cor}" stroke-width="1.5" opacity=".85"/>`;for(const [i,v] of pontos)svg+=`<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${cor}"><title>${label(i)} · ${nome}: ${fmt(v)} m³</title></circle>`;}
  result.forEach((v,i)=>{svg+=`<circle cx="${x(i)}" cy="${y(v.close)}" r="4" fill="${status(v.close)==='danger'?'#FF6B5F':status(v.close)==='warn'?'#F97316':'#EEFE7A'}"><title>${label(i)} · Fechamento: ${fmt(v.close)} m³</title></circle>`;});
  // Area invisivel por dia, por cima de tudo, pra abrir o popup com o detalhamento completo daquele
  // dia (pedido da usuaria, 2026-10-01: "popupzinho com todas as infos que temos").
  const largura=(W-L-R)/offsets.length;
  for(const i of offsets)svg+=`<rect x="${x(i)-largura/2}" y="0" width="${largura}" height="${H-B}" fill="transparent" data-chart-day="${i}" tabindex="0" aria-label="Detalhes de ${esc(label(i))}"/>`;
- $('chart').innerHTML=svg+'</svg>';}
+ $('chart').innerHTML=svg+rot+'</svg>';}
 function popupGrafico(i){
  const {result,offsets}=chartContext||{};if(!result)return'';
  const futuro=i>=0;
