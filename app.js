@@ -19,6 +19,11 @@ function simulationToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Ame
 // cenarioForcado (pedido da usuaria, 2026-10-01): permite calcular o estado "fresh" de QUALQUER
 // registro com um cenario especifico, sem depender do que esta selecionado na tela — usado pela
 // "Visao da semana" pra calcular o LE padrao ao vivo de bases sem cenario salvo.
+// Nomes da usuaria (2026-10-08): "programado" = FOB que ja conta hoje (Em Andamento/Viagem Finalizada,
+// com placa); "nao programado" = viagens FOB do portal ainda sem placa (Ofertado/Aceito/Backlog), que o
+// publicar_transito_ao_vivo.py ja manda so' no detalhe (viagens[].grupo==='programado' no codigo).
+// Nao entra na conta, a nao ser na origem de entrada "Programado + Não programado".
+function fobNaoProgramado(r,iso){const vs=(D.transitoAoVivo?.[r.bi?.emp_dep]?.[r.bi?.material]?.[iso]?.viagens||[]).filter(v=>v.modal==='fob'&&v.grupo==='programado');return vs.length?vs.reduce((s,v)=>s+(v.volume||0),0):null;}
 function fresh(r,cenarioForcado){
  const scenario=cenarioForcado||$('scenario')?.value||'LE',today=simulationToday();
  // Origem da entrada (pedido da usuaria, 2026-10-01): 'auto' = fontes de sempre (FOB/CIF do portal +
@@ -47,9 +52,11 @@ function fresh(r,cenarioForcado){
   // portal inbound direto (nao o CSV de 30 em 30 min) e publica em D.transitoAoVivo, por emp_dep e
   // material. So' sobrescreve quando 'auto' (nao em 'cadencia', que ja' e' uma fonte explicita
   // diferente) e fora do cenario 'Inbound + MIS' (que tem sua propria fonte de FOB/CIF, loaded.inboundMis).
-  if(future&&entrada==='auto'&&scenario!=='Inbound + MIS'){
+  if(future&&entrada.startsWith('auto')&&scenario!=='Inbound + MIS'){
    const vivo=D.transitoAoVivo?.[r.bi?.emp_dep]?.[r.bi?.material]?.[day(i)];
    if(vivo&&(vivo.fob!=null||vivo.cif!=null)){movements.fob[i]=vivo.fob??0;movements.cif[i]=vivo.cif??0;}
+   // "Programado + Não programado" (pedido da usuaria, 2026-10-08): soma no FOB as viagens ainda sem placa.
+   if(entrada==='auto+naoprog')movements.fob[i]+=fobNaoProgramado(r,day(i))??0;
   }
   // Datas anteriores usam a mesma base em todos os cenarios.
   if(!future)continue;
@@ -161,7 +168,13 @@ function history(i){return D.history?.[day(i)]?.[record.base+'|'+record.product]
 // vendas realizadas (VA05 fornecido), FOB/CIF realizados (trânsito publicado) e fechamento = abertura do dia seguinte.
 // Cor da abertura pela ocupacao do tanque: vermelho abaixo de 70% da capacidade, amarelo ate 75%, verde acima.
 function capBand(v){const cap=record.capacidadeFisica;if(v==null||!cap)return'';const p=v/cap;return p<0.70?'danger':p<=0.75?'warn':'high';}
-function transitoPassado(i,k){const t=D.transitoAoVivo?.[record.bi?.emp_dep]?.[record.bi?.material]?.[day(i)];return t?.[k]??null;}
+// No modo combinado soma o passado de cada registro real por tras da soma (o record sintetico nao tem emp_dep).
+const registrosReais=()=>record._registrosCombinados||[record];
+function transitoPassado(i,k){const vs=registrosReais().map(r=>D.transitoAoVivo?.[r.bi?.emp_dep]?.[r.bi?.material]?.[day(i)]?.[k]);return somaOuNula(vs);}
+// Recebimento realizado no SAP (planilhas mensais de movimentacao, por data de lancamento) — so' dias
+// passados; mesma regra do "Recebimentos realizados" do BI (pedido da usuaria, 2026-10-08).
+function recebidoPassado(i){return somaOuNula(registrosReais().map(r=>r.bi?.days?.[day(i)]?.recebidoSap));}
+function vendaRealPassado(i){return history(i)?.sale??somaOuNula(registrosReais().map(r=>r.bi?.days?.[day(i)]?.billing));}
 function valorPassado(k,i,result){
  if(k==='opening')return history(i)?.opening??null;
  if(k==='outgoing')return history(i)?.sale??null;
@@ -186,7 +199,8 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  // da linha editavel que realmente debita do estoque — pedido da usuaria, 2026-09-30: ver as 4 fontes
  // (VMD reprojetada, LE original sem reprojecao, Pedidos em tela = VA05 total do dia/todos os status,
  // faturamento real) fixas, lado a lado com o que foi aplicado (que o usuario escolhe puxar ou digitar).
- const infoRow=(titulo,getter)=>`<tr class="info-row"><th class="row-controls"></th><th class="row-label">↳ ${titulo}</th>${offsets.map(i=>`<td class="history${i===0?' today':''}">${fmt(getter(i))}</td>`).join('')}</tr>`;
+ // dentroDoGrupo: linha no meio do rowspan da coluna de botoes — nao emite a celula de controle.
+ const infoRow=(titulo,getter,dentroDoGrupo=false)=>`<tr class="info-row">${dentroDoGrupo?'':'<th class="row-controls"></th>'}<th class="row-label">↳ ${titulo}</th>${offsets.map(i=>`<td class="history${i===0?' today':''}">${fmt(getter(i))}</td>`).join('')}</tr>`;
  // Pedido da usuaria, 2026-10-01: "Recebimento adicional manual" e "Programação adicional manual"
  // tiradas da tabela (ficavam sempre zeradas, so' poluiam a visao). O calculo continua somando o que
  // ja estiver salvo nesses campos (E.rows/motor.js inalterado); so' nao aparecem mais como linha editavel.
@@ -201,15 +215,21 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  const saidaKeys=linhasVisiveis.filter(([,,sign])=>sign<0).map(([k])=>k);
  for(const [k,l,sign] of E.rows){
   if(['received','planned','transferIn','transferOut'].includes(k))continue;
+  // So' tem valor nos dias de historico (botao "+" da grade); referencia, nao entra no calculo.
+  if(k===entradaKeys[0])html+=infoRow('Recebimentos reais (SAP)',i=>i<0?recebidoPassado(i):null);
   if(k==='sale'){
    html+=infoRow('VMD reprojetada',i=>record.bi?.days[day(i)]?.vmd);
    html+=infoRow('LE vigente (sem reprojeção)',i=>record.bi?.semana?.porDia?.[day(i)]?.le);
    html+=infoRow('Pedidos em tela',i=>record.bi?.days[day(i)]?.billing);
    html+=infoRow('Vendas reais (faturamento)',i=>record.bi?.semana?.porDia?.[day(i)]?.real);
   }
-  const controlCell=k===entradaKeys[0]?`<th rowspan="${entradaKeys.length}" class="row-controls" id="entrada-controls-cell"></th>`
+  const controlCell=k===entradaKeys[0]?`<th rowspan="${entradaKeys.length+(entradaKeys.includes('fob')?1:0)}" class="row-controls" id="entrada-controls-cell"></th>`
    :k===saidaKeys[0]?`<th rowspan="${saidaKeys.length}" class="row-controls" id="scenario-controls-cell"></th>`:'';
-  html+=`<tr class="${sign>0?'entry':'exit'}">${controlCell}<th class="row-label">${sign>0?'+':'−'} ${l}</th>`+offsets.map(i=>i<0?`<td class="history${i===0?' today':''}" title="${k==='sale'?'Faturamento pendente de integração':'Informação histórica da fonte'}">${fmt(['fob','cif'].includes(k)?transitoPassado(i,k):history(i)?.[k])}</td>`:`<td class="${i===0?'today':''}"><input type="number" step="any" min="0" data-row="${k}" data-day="${i}" aria-label="${l} ${label(i)}" value="${Math.round(state.movements[k][i])}" title="${esc(sourceNote(k,i))}"></td>`).join('')+'</tr>';
+  const rotulo=k==='fob'?'Trânsito FOB · programado (com placa)':l;
+  html+=`<tr class="${sign>0?'entry':'exit'}">${controlCell}<th class="row-label">${sign>0?'+':'−'} ${rotulo}</th>`+offsets.map(i=>i<0?`<td class="history${i===0?' today':''}" title="${k==='sale'?'Faturamento pendente de integração':'Informação histórica da fonte'}">${fmt(['fob','cif'].includes(k)?transitoPassado(i,k):history(i)?.[k])}</td>`:`<td class="${i===0?'today':''}"><input type="number" step="any" min="0" data-row="${k}" data-day="${i}" aria-label="${l} ${label(i)}" value="${Math.round(state.movements[k][i])}" title="${esc(sourceNote(k,i))}"></td>`).join('')+'</tr>';
+  // Linha logo abaixo do FOB (pedido da usuaria, 2026-10-08) — so' referencia; entra na conta apenas
+  // com a origem de entrada "Programado + Não programado".
+  if(k==='fob')html+=infoRow('Trânsito FOB · não programado (sem placa)',i=>somaOuNula(registrosReais().map(r=>fobNaoProgramado(r,day(i)))),true);
  }
  for(const [k,l] of [['incoming','Total de entradas'],['outgoing','Total de saídas']])html+=outputRow(k,l);
  $('grid').innerHTML=html+'</tbody>';}
@@ -240,34 +260,35 @@ function semanaProgresso(){
  </tbody></table>`:'';
  el.innerHTML=`<div class="semana-progresso-rotulo">Ritmo da semana (dados até ${horaExtracao}): <strong>${fmt(semana.realSemana)} de ${fmt(semana.leSemana)} m³ vendidos</strong> (${Math.round(pct*100)}%)${estourou?' · já passou da meta da semana':''}</div><div class="semana-progresso-barra"><div style="width:${Math.min(pct,1)*100}%;background:${cor}"></div></div>${tabela}`;
 }
-// Series finas de movimento (so' cobrem i>=0 — dias passados ainda nao tem esses campos no
-// historico, so' opening/planned/received/sale; ver "editar passado" pausado).
+// Series de movimento. Dias passados (i<0), igual ao grafico do BI (pedido da usuaria, 2026-10-08):
+// Recebimentos = realizado no SAP, FOB/CIF = o que chegou pelo portal; as linhas de venda mostram o real.
 const movSeries=[
- ['received','Recebimentos','#7DD3C0',i=>i>=0?state.movements.received[i]:null],
+ ['received','Recebimentos','#7DD3C0',i=>i>=0?state.movements.received[i]:recebidoPassado(i)],
  ['pump','Prog. Bombeio','#2DD4BF',i=>i>=0?state.movements.pump[i]:null],
  ['progRoad','Prog. Rodoviário','#5EEAD4',i=>i>=0?(record.bi?.days[day(i)]?.progRoad??null):null],
- ['fob','Trânsito FOB','#64748B',i=>i>=0?state.movements.fob[i]:null],
- ['cif','Trânsito CIF','#FDE68A',i=>i>=0?state.movements.cif[i]:null],
+ ['fob','Trânsito FOB','#64748B',i=>i>=0?state.movements.fob[i]:transitoPassado(i,'fob')],
+ ['cif','Trânsito CIF','#FDE68A',i=>i>=0?state.movements.cif[i]:transitoPassado(i,'cif')],
  ['vmd','Média Vendas','#E5E7EB',i=>i>=0?(record.bi?.days[day(i)]?.vmd??null):null],
  ['plannedSales','Vendas Planejadas','#D9F99D',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.LE?.plannedSales??null):null],
- ['actualSales','Vendas Real','#4ADE80',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.Real?.actualSales??null):null],
+ ['actualSales','Vendas Real','#4ADE80',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.Real?.actualSales??null):vendaRealPassado(i)],
  ['availability','Disp. MIS','#A3E635',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.['Disp MIS']?.availability??null):null],
 ];
 // Entradas viram blocos empilhados sobre a abertura (igual ao grafico do BI); as demais series seguem em linha.
 const ENTRADAS_BLOCO=['received','pump','progRoad','fob','cif'];
 const valorMov=(k,i)=>(movSeries.find(m=>m[0]===k)[3](i))||0;
-const topoPilha=(result,i)=>Math.max(result[i]?.opening??0,0)+ENTRADAS_BLOCO.reduce((s,k)=>s+valorMov(k,i),0);
+const aberturaGrafico=(result,i)=>i<0?history(i)?.opening:result[i]?.opening;
+const topoPilha=(result,i)=>Math.max(aberturaGrafico(result,i)??0,0)+ENTRADAS_BLOCO.reduce((s,k)=>s+Math.max(valorMov(k,i),0),0);
 let chartContext=null;
 let mostrarHistoricoGrade=false;
 document.addEventListener('click',e=>{if(e.target.closest('#toggle-historico')){mostrarHistoricoGrade=!mostrarHistoricoGrade;render(true);}});
-function chart(result,original,offsets){chartContext={result,offsets};let rot='';const W=1200,H=250,L=60,R=20,T=16,B=32;const movValores=movSeries.flatMap(([,,,f])=>offsets.map(f)).filter(v=>v!=null);const pilhas=offsets.filter(i=>i>=0).map(i=>topoPilha(result,i));const values=result.flatMap(x=>[x.opening,x.close]).concat(original.map(x=>x.close),offsets.filter(i=>i<0).map(i=>history(i)?.opening).filter(v=>v!=null),parameters.slice(1).map(([k])=>state[k]).filter(v=>v!==null),movValores,pilhas,[0]);const lo=Math.min(...values),hi=Math.max(...values),span=Math.max(hi-lo,1),y=v=>T+(hi+span*.1-v)/(span*1.2)*(H-T-B),x=i=>L+(i+7+.5)*(W-L-R)/offsets.length;
+function chart(result,original,offsets){chartContext={result,offsets};let rot='';const W=1200,H=250,L=60,R=20,T=16,B=32;const movValores=movSeries.flatMap(([,,,f])=>offsets.map(f)).filter(v=>v!=null);const pilhas=offsets.map(i=>topoPilha(result,i));const values=result.flatMap(x=>[x.opening,x.close]).concat(original.map(x=>x.close),offsets.filter(i=>i<0).map(i=>history(i)?.opening).filter(v=>v!=null),parameters.slice(1).map(([k])=>state[k]).filter(v=>v!==null),movValores,pilhas,[0]);const lo=Math.min(...values),hi=Math.max(...values),span=Math.max(hi-lo,1),y=v=>T+(hi+span*.1-v)/(span*1.2)*(H-T-B),x=i=>L+(i+7+.5)*(W-L-R)/offsets.length;
  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Histórico de abertura e projeção de estoque em metros cúbicos"><rect x="${L}" y="0" width="${x(0)-L-(W-L-R)/offsets.length/2}" height="${H-B}" fill="#ffffff04"/>`;
  for(let j=0;j<5;j++){const v=lo+(hi-lo)*j/4;svg+=`<path d="M${L} ${y(v)}H${W-R}" stroke="#314A32"/><text x="${L-8}" y="${y(v)+4}" fill="#7FA069" text-anchor="end" font-size="11">${fmt(v)}</text>`;}
  for(const [k,color,dash] of [['min','#FF6B5F','4 5'],['mid','#9CA3AF','4 5'],['lastro','#F97316','4 5'],['max','#8DC830','4 5'],['capacity','#38BDF8','']])if(state[k]!==null)svg+=`<path d="M${L} ${y(state[k])}H${W-R}" stroke="${color}" stroke-width="${k==='capacity'?2:1}" stroke-dasharray="${dash}"><title>${k}: ${fmt(state[k])} m³</title></path>`;
  const today=simulationToday();const hojeI=offsets.find(i=>day(i)===today);if(hojeI!=null)svg+=`<rect x="${x(hojeI)-(W-L-R)/offsets.length/2}" y="0" width="${(W-L-R)/offsets.length}" height="${H-B}" fill="#EEFE7A" opacity=".08"><title>Hoje</title></rect>`;
- const base=svg;svg='';for(const i of offsets){const v=i<0?history(i)?.opening:result[i].opening;if(v!=null){const barTop=Math.min(y(v),y(0)),cor=i<0?'#527568':(d=>{const s=state.movements.sale[i]??0;return s<=0||d>=s?'#14B8A6':d>=0.9*s?'#FACC15':'#FF6B5F';})(v+result[i].incoming);svg+=`<rect x="${x(i)-12}" y="${barTop}" width="24" height="${Math.max(1,Math.abs(y(v)-y(0)))}" fill="${cor}" opacity=".9"><title>${label(i)} · Abertura: ${fmt(v)} m³</title></rect>`;const rotulo=fmt(v),largura=Math.max(26,rotulo.length*7+10),comPilha=i>=0&&topoPilha(result,i)>Math.max(v,0),ry=comPilha?barTop+4:barTop-22;rot+=`<rect x="${x(i)-largura/2}" y="${ry}" width="${largura}" height="17" rx="4" fill="#EAF6E8" opacity=".92"/><text x="${x(i)}" y="${ry+12}" text-anchor="middle" fill="#14210F" font-size="11" font-weight="700">${rotulo}</text>`;}svg+=`<text x="${x(i)}" y="${H-8}" text-anchor="middle" fill="${day(i)===today?'#EEFE7A':'#BFD4A8'}" font-size="11" font-weight="${day(i)===today?'700':'400'}">${label(i)}</text>`;}
+ const base=svg;svg='';for(const i of offsets){const v=i<0?history(i)?.opening:result[i].opening;if(v!=null){const barTop=Math.min(y(v),y(0)),cor=i<0?'#527568':(d=>{const s=state.movements.sale[i]??0;return s<=0||d>=s?'#14B8A6':d>=0.9*s?'#FACC15':'#FF6B5F';})(v+result[i].incoming);svg+=`<rect x="${x(i)-12}" y="${barTop}" width="24" height="${Math.max(1,Math.abs(y(v)-y(0)))}" fill="${cor}" opacity=".9"><title>${label(i)} · Abertura: ${fmt(v)} m³</title></rect>`;const rotulo=fmt(v),largura=Math.max(26,rotulo.length*7+10),comPilha=topoPilha(result,i)>Math.max(v,0),ry=comPilha?barTop+4:barTop-22;rot+=`<rect x="${x(i)-largura/2}" y="${ry}" width="${largura}" height="17" rx="4" fill="#EAF6E8" opacity=".92"/><text x="${x(i)}" y="${ry+12}" text-anchor="middle" fill="#14210F" font-size="11" font-weight="700">${rotulo}</text>`;}svg+=`<text x="${x(i)}" y="${H-8}" text-anchor="middle" fill="${day(i)===today?'#EEFE7A':'#BFD4A8'}" font-size="11" font-weight="${day(i)===today?'700':'400'}">${label(i)}</text>`;}
  const barras1=svg;svg='';for(const [series,color,dash] of [[original,'#7FA069','5 5'],[result,'#EEFE7A','']])svg+=`<polyline points="${series.map((v,i)=>`${x(i)},${y(v.close)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2.5" stroke-dasharray="${dash}"/>`;
- const linhas1=svg;svg='';for(const i of offsets.filter(i=>i>=0)){let cum=Math.max(result[i]?.opening??0,0);for(const k of ENTRADAS_BLOCO){const [,nome,cor,valorEm]=movSeries.find(m=>m[0]===k);const v=valorEm(i)||0;if(v<=0)continue;svg+=`<rect x="${x(i)-12}" y="${y(cum+v)}" width="24" height="${Math.max(1,y(cum)-y(cum+v))}" fill="${cor}" opacity=".85"><title>${label(i)} · ${nome}: ${fmt(v)} m³</title></rect>`;if(y(cum)-y(cum+v)>=14)rot+=`<text x="${x(i)}" y="${(y(cum)+y(cum+v))/2+4}" text-anchor="middle" font-size="10" font-weight="700" fill="#0B1A0E">${fmt(v)}</text>`;cum+=v;}if(cum>Math.max(result[i]?.opening??0,0))rot+=`<text x="${x(i)}" y="${y(cum)-6}" text-anchor="middle" font-size="11" font-weight="700" fill="#EAF6E8">${fmt(cum-Math.max(result[i]?.opening??0,0))}</text>`;}
+ const linhas1=svg;svg='';for(const i of offsets){const base0=Math.max(aberturaGrafico(result,i)??0,0);let cum=base0;for(const k of ENTRADAS_BLOCO){const [,nome,cor,valorEm]=movSeries.find(m=>m[0]===k);const v=valorEm(i)||0;if(v<=0)continue;svg+=`<rect x="${x(i)-12}" y="${y(cum+v)}" width="24" height="${Math.max(1,y(cum)-y(cum+v))}" fill="${cor}" opacity=".85"><title>${label(i)} · ${nome}: ${fmt(v)} m³</title></rect>`;if(y(cum)-y(cum+v)>=14)rot+=`<text x="${x(i)}" y="${(y(cum)+y(cum+v))/2+4}" text-anchor="middle" font-size="10" font-weight="700" fill="#0B1A0E">${fmt(v)}</text>`;cum+=v;}if(cum>base0)rot+=`<text x="${x(i)}" y="${y(cum)-6}" text-anchor="middle" font-size="11" font-weight="700" fill="#EAF6E8">${fmt(cum-base0)}</text>`;}
  const barras2=svg;svg='';for(const [chave,nome,cor,valorEm] of movSeries.filter(m=>!ENTRADAS_BLOCO.includes(m[0]))){const pontos=offsets.map(i=>[i,valorEm(i)]).filter(([,v])=>v!=null);if(!pontos.length)continue;svg+=`<polyline points="${pontos.map(([i,v])=>`${x(i)},${y(v)}`).join(' ')}" fill="none" stroke="${cor}" stroke-width="1.5" opacity=".85"/>`;for(const [i,v] of pontos)svg+=`<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${cor}"><title>${label(i)} · ${nome}: ${fmt(v)} m³</title></circle>`;}
  result.forEach((v,i)=>{svg+=`<circle cx="${x(i)}" cy="${y(v.close)}" r="4" fill="${status(v.close)==='danger'?'#FF6B5F':status(v.close)==='warn'?'#F97316':'#EEFE7A'}"><title>${label(i)} · Fechamento: ${fmt(v.close)} m³</title></circle>`;});
  const linhas2=svg;svg=base+linhas1+linhas2+barras1+barras2;

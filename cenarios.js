@@ -28,6 +28,8 @@
  const tableSection=$('grid').closest('section');
  tableSection.classList.add('simulation-table');
  document.querySelector('.filters').after(tableSection);
+ // Ordem pedida pela usuaria (2026-10-08): simulacao -> grafico -> politica/cards/conferir fontes.
+ tableSection.after($('chart').closest('section'));
  document.querySelector('.editor-panel').hidden=true;
  tableSection.querySelector('.section-title').append($('saved'));
  const sourceDetails=$('source').closest('details');
@@ -58,7 +60,7 @@
  // Bombeio + Transferencia-entrada. O <select id="entrada"> continua existindo (escondido) so' como
  // estado — os botoes espelham ele, igual o #scenario acima.
  const entradaSelector=$('entrada');
- const entradaModes=[['auto','Fontes automáticas'],['cadencia','Cadência MIS']];
+ const entradaModes=[['auto','Fontes automáticas'],['cadencia','Cadência MIS'],['auto+naoprog','Programado + Não programado']];
  entradaSelector.parentElement.hidden=true;
  const entradaControls=document.createElement('div');
  entradaControls.className='scenario-controls';
