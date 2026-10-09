@@ -137,8 +137,8 @@
   if(!viagens.length)return `<strong>Trânsito ${modal.toUpperCase()} · ${dateLabel(day(index))}</strong><p>Sem detalhe de viagem ao vivo pra este dia.</p>`;
   const realizadas=viagens.filter(v=>v.grupo!=='programado'),programadas=viagens.filter(v=>v.grupo==='programado');
   return `<strong>Trânsito ${modal.toUpperCase()} · ${dateLabel(day(index))}</strong>`
-   +(realizadas.length?`<dl>${realizadas.map(linhaViagemHtml).join('')}</dl><p style="color:#60A5FA">${realizadas.length} viagem(ns) · total ${fmt(realizadas.reduce((s,v)=>s+v.volume,0))} m³</p>`:'')
-   +(programadas.length?`<dl>${programadas.map(linhaViagemHtml).join('')}</dl><p style="color:#F97316">${programadas.length} não programada(s) · ${fmt(programadas.reduce((s,v)=>s+v.volume,0))} m³ · só soma com "Programado + Não programado"</p>`:'');
+   +(realizadas.length?`<dl class="viagens">${realizadas.map(linhaViagemHtml).join('')}</dl><p style="color:#60A5FA">${realizadas.length} viagem(ns) · total ${fmt(realizadas.reduce((s,v)=>s+v.volume,0))} m³</p>`:'')
+   +(programadas.length?`<dl class="viagens">${programadas.map(linhaViagemHtml).join('')}</dl><p style="color:#F97316">${programadas.length} não programada(s) · ${fmt(programadas.reduce((s,v)=>s+v.volume,0))} m³ · só soma com "Programado + Não programado"</p>`:'');
  }
  // Popup "de qual deposito/empresa vem essa abertura" no modo combinado — pedido da usuaria,
  // 2026-10-05: "na abertura, quando selecionar + de 1, eu preciso saber qual deposito e empresa".

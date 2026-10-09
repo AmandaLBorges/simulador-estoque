@@ -305,7 +305,8 @@ document.addEventListener('click',e=>{if(e.target.closest('#toggle-historico')){
 const COR_LASTRO='#F9B96B',COR_ABERTURA='#3AAE9C';
 function chart(result,original,offsets){
  chartContext={result,offsets};
- const W=1200,H=260,L=60,R=20,T=16,B=36;
+ // Altura acompanha a largura da tela (style.css: height:auto) — ocupa a tela toda (usuaria, 2026-10-09).
+ const W=1200,H=320,L=50,R=12,T=16,B=36;
  const lastro=Math.max(state.lastro??0,0);
  const movValores=movSeries.flatMap(([,,,f])=>offsets.map(f)).filter(v=>v!=null);
  // Sem linha de fechamento/cenario original (usuaria, 2026-10-09: "n precisa disso"): escala so' pelas barras e linhas.
@@ -371,15 +372,18 @@ function popupGrafico(i){
   semanaHtml=`<p><strong>LE da semana · já realizado</strong></p><dl>${linha('Cidade (consolidado)',semanaDia)}${linha('Este depósito',depositoDia)}</dl>`;
  }
  const viagens=viagensDoDia(i).filter(v=>v.grupo!=='programado');
- const viagensHtml=viagens.length?`<p><strong>Viagens ${day(i)>=simulationToday()?'previstas':'que chegaram'} (${viagens.length})</strong></p><dl>${viagens.map(linhaViagemHtml).join('')}</dl>`:'';
- return `<strong>${esc(label(i))} · ${esc(record.base)} · ${esc(record.product)}</strong><dl>${linhas.map(([n,v])=>`<div><dt>${esc(n)}</dt><dd>${v==null?'Sem dado':fmt(v)+' m³'}</dd></div>`).join('')}</dl>${viagensHtml}${semanaHtml}`;
+ const viagensHtml=viagens.length?`<p><strong>Viagens ${day(i)>=simulationToday()?'previstas':'que chegaram'} (${viagens.length})</strong></p><dl class="viagens">${viagens.map(linhaViagemHtml).join('')}</dl>`:'';
+ return `<strong>${esc(label(i))} · ${esc(record.base)} · ${esc(record.product)}</strong><dl class="valores">${linhas.map(([n,v])=>`<div><dt>${esc(n)}</dt><dd>${v==null?'Sem dado':fmt(v)+' m³'}</dd></div>`).join('')}</dl>${viagensHtml}${semanaHtml}`;
 }
 function mostrarPopupGrafico(el){
  const i=+el.dataset.chartDay,popup=$('chart-popover');
  popup.innerHTML=popupGrafico(i);popup.hidden=false;
  const rect=el.getBoundingClientRect(),width=popup.offsetWidth,height=popup.offsetHeight;
- popup.style.left=Math.max(8,Math.min(rect.left,innerWidth-width-8))+'px';
- popup.style.top=Math.max(8,rect.top-height-8>=8?rect.top-height-8:rect.bottom+8)+'px';
+ // Abre AO LADO da coluna do dia (direita, ou esquerda se nao couber) e sempre inteiro dentro da tela —
+ // abrindo embaixo, o popup passava do fim da janela e cortava as viagens (2026-10-09).
+ const direita=rect.right+8,esquerda=rect.left-width-8;
+ popup.style.left=(direita+width<=innerWidth-8?direita:Math.max(8,esquerda))+'px';
+ popup.style.top=Math.max(8,Math.min(rect.top,innerHeight-height-8))+'px';
 }
 function fecharPopupGrafico(){$('chart-popover').hidden=true;}
 document.addEventListener('pointerover',e=>{const el=e.target.closest('[data-chart-day]');if(el)mostrarPopupGrafico(el);});
@@ -427,9 +431,8 @@ function sincronizarSelectMultiplo(select,ativos){select.value=ativos.size===1?[
 // existia pro <select> simples, so' que agora sobre um Set em vez de 1 valor so').
 function refreshDepositoOptions(){const cidade=$('cidade').value;const permitidos=cidade?depositosPermitidos(cidade):[];options($('deposito'),['',...permitidos]);$('deposito').options[0].textContent='Selecione o depósito';const permitidosSet=new Set(permitidos);depositosAtivos=new Set([...depositosAtivos].filter(d=>permitidosSet.has(d)));if(!depositosAtivos.size&&permitidos.length===1)depositosAtivos=new Set(permitidos);sincronizarSelectMultiplo($('deposito'),depositosAtivos);refreshEmpresaOptions();}
 function refreshEmpresaOptions(){const cidade=$('cidade').value;const permitidos=cidade&&depositosAtivos.size?empresasPermitidas(cidade,depositosAtivos):[];options($('empresa'),['',...permitidos]);$('empresa').options[0].textContent='Selecione a empresa';const permitidosSet=new Set(permitidos);empresasAtivas=new Set([...empresasAtivas].filter(e=>permitidosSet.has(e)));if(!empresasAtivas.size&&permitidos.length===1)empresasAtivas=new Set(permitidos);sincronizarSelectMultiplo($('empresa'),empresasAtivas);if(typeof renderChips==='function')renderChips();}
-// So aparece pra quem enxerga mais de uma regiao (administrador/leitura); regional ja so ve a propria
-// regiao, entao filtrar por outra sempre daria lista vazia.
-const perfilVeTudo=window.SIM_AUTH?.profile?.admin===true||window.SIM_AUTH?.profile?.perfil==='leitura';
+// Aparece pra todo perfil logado: sem segregacao por regiao desde 2026-10-09, todo mundo ve as 3 regioes.
+const perfilVeTudo=!!window.SIM_AUTH?.profile;
 if(perfilVeTudo)$('regiao-filtro-label').hidden=false;
 $('regiao-filtro')?.addEventListener('change',()=>{refreshBaseOptions();products();});
 // Pedido da usuaria, 2026-10-01: nada pre-selecionado ao abrir (antes tinha um default fixo em

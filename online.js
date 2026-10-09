@@ -54,10 +54,8 @@ onAuthStateChanged(auth, async user => {
         || !['administrador', 'regional', 'leitura'].includes(profile.perfil)) {
       throw new Error('Sua conta ainda não tem acesso liberado ao simulador.');
     }
-    // A carga é publicada por região: administrador e leitura baixam todas; regional, só a sua.
-    const visibleRegions = profile.admin === true || profile.perfil === 'leitura'
-      ? ['SP', 'MG_RJ', 'CO'] : [profile.regiao];
-    if (!visibleRegions[0]) throw new Error('Sua conta não tem região definida. Peça a liberação ao administrador.');
+    // A carga continua publicada por região, mas todo perfil baixa todas (sem segregação, 2026-10-09).
+    const visibleRegions = ['SP', 'MG_RJ', 'CO'];
     const [metaSnapshot, regions, transitoSnapshot, ...regionSnapshots] = await Promise.all([
       get(ref(db, 'fontes/atual/meta')), get(ref(db, 'cadastros/regioes')), get(ref(db, 'transitoAoVivo')),
       ...visibleRegions.map(name => get(ref(db, `fontes/atual/regioes/${name}`))),
@@ -88,7 +86,8 @@ onAuthStateChanged(auth, async user => {
     window.ESTOQUE_DATA = data;
     window.SIM_AUTH = {uid: user.uid, email: user.email, profile};
     window.SIM_CLOUD = {
-      canEdit(base) { return profile.admin === true || (profile.perfil === 'regional' && regions.val()?.[hex(base)] === profile.regiao); },
+      // Edita qualquer base: administrador e regional; perfil 'leitura' (Thiago/Thales) só consulta.
+      canEdit(base) { return profile.admin === true || profile.perfil === 'regional'; },
       async list(base) { return (await get(ref(db, `cenarios/${hex(base)}`))).val() || {}; },
       async save(base, id, content, expected) {
         const result = await runTransaction(ref(db, `cenarios/${hex(base)}/${id}`), current => {
