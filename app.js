@@ -272,15 +272,15 @@ function semanaProgresso(){
 // Series de movimento. Dias passados (i<0), igual ao grafico do BI (pedido da usuaria, 2026-10-08):
 // Recebimentos = realizado no SAP, FOB/CIF = o que chegou pelo portal; as linhas de venda mostram o real.
 const movSeries=[
- ['received','Recebimentos','#7DD3C0',i=>i>=0?state.movements.received[i]:recebidoPassado(i)],
- ['pump','Prog. Bombeio','#2DD4BF',i=>i>=0?state.movements.pump[i]:null],
- ['progRoad','Prog. Rodoviário','#5EEAD4',i=>i>=0?(record.bi?.days[day(i)]?.progRoad??null):null],
- ['fob','Trânsito FOB','#64748B',i=>i>=0?state.movements.fob[i]:transitoPassado(i,'fob')],
- ['cif','Trânsito CIF','#FDE68A',i=>i>=0?state.movements.cif[i]:transitoPassado(i,'cif')],
- ['vmd','Média Vendas','#E5E7EB',i=>i>=0?(record.bi?.days[day(i)]?.vmd??null):null],
+ ['received','Recebimentos','#C8F2EC',i=>i>=0?state.movements.received[i]:recebidoPassado(i)],
+ ['pump','Prog. Bombeio','#9EDFD6',i=>i>=0?state.movements.pump[i]:null],
+ ['progRoad','Prog. Rodoviário','#7FC4BA',i=>i>=0?(record.bi?.days[day(i)]?.progRoad??null):null],
+ ['fob','Trânsito FOB','#B0B0B0',i=>i>=0?state.movements.fob[i]:transitoPassado(i,'fob')],
+ ['cif','Trânsito CIF','#F4F08A',i=>i>=0?state.movements.cif[i]:transitoPassado(i,'cif')],
+ ['vmd','Média Vendas','#FFFFFF',i=>i>=0?(record.bi?.days[day(i)]?.vmd??null):null],
  ['plannedSales','Vendas Planejadas','#D9F99D',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.LE?.plannedSales??null):null],
- ['actualSales','Vendas Real','#4ADE80',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.Real?.actualSales??null):vendaRealPassado(i)],
- ['availability','Disp. MIS','#A3E635',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.['Disp MIS']?.availability??null):null],
+ ['actualSales','Vendas Real','#C8C8C8',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.Real?.actualSales??null):vendaRealPassado(i)],
+ ['availability','Disp. MIS','#39FF14',i=>i>=0?(record.bi?.days[day(i)]?.scenarios?.['Disp MIS']?.availability??null):null],
 ];
 // Entradas viram blocos empilhados sobre a abertura (igual ao grafico do BI); as demais series seguem em linha.
 const ENTRADAS_BLOCO=['received','pump','progRoad','fob','cif'];
@@ -291,24 +291,60 @@ let chartContext=null;
 let mostrarHistoricoGrade=false;
 let mostrarInfoGrade=false;
 document.addEventListener('click',e=>{if(e.target.closest('#toggle-historico')){mostrarHistoricoGrade=!mostrarHistoricoGrade;render(true);}if(e.target.closest('#toggle-info')){mostrarInfoGrade=!mostrarInfoGrade;render(true);}});
-function chart(result,original,offsets){chartContext={result,offsets};let rot='';const W=1200,H=250,L=60,R=20,T=16,B=32;const movValores=movSeries.flatMap(([,,,f])=>offsets.map(f)).filter(v=>v!=null);const pilhas=offsets.map(i=>topoPilha(result,i));const values=result.flatMap(x=>[x.opening,x.close]).concat(original.map(x=>x.close),offsets.filter(i=>i<0).map(i=>history(i)?.opening).filter(v=>v!=null),parameters.slice(1).map(([k])=>state[k]).filter(v=>v!==null),movValores,pilhas,[0]);// Escala comeca no zero: estoque negativo nao desenha abaixo do eixo (pedido da usuaria, 2026-10-09) —
-// a barra fica rente ao zero, mas o rotulo continua mostrando o numero negativo.
-const lo=0,hi=Math.max(...values),span=Math.max(hi-lo,1),y=v=>T+(hi+span*.1-Math.max(v,0))/(span*1.2)*(H-T-B),x=i=>L+(i+7+.5)*(W-L-R)/offsets.length;
- let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Histórico de abertura e projeção de estoque em metros cúbicos"><rect x="${L}" y="0" width="${x(0)-L-(W-L-R)/offsets.length/2}" height="${H-B}" fill="#ffffff04"/>`;
- for(let j=0;j<5;j++){const v=lo+(hi-lo)*j/4;svg+=`<path d="M${L} ${y(v)}H${W-R}" stroke="#314A32"/><text x="${L-8}" y="${y(v)+4}" fill="#7FA069" text-anchor="end" font-size="11">${fmt(v)}</text>`;}
- for(const [k,color,dash] of [['min','#FF6B5F','4 5'],['mid','#9CA3AF','4 5'],['lastro','#F97316','4 5'],['max','#8DC830','4 5'],['capacity','#38BDF8','']])if(state[k]!==null)svg+=`<path d="M${L} ${y(state[k])}H${W-R}" stroke="${color}" stroke-width="${k==='capacity'?2:1}" stroke-dasharray="${dash}"><title>${k}: ${fmt(state[k])} m³</title></path>`;
- const today=simulationToday();const hojeI=offsets.find(i=>day(i)===today);if(hojeI!=null)svg+=`<rect x="${x(hojeI)-(W-L-R)/offsets.length/2}" y="0" width="${(W-L-R)/offsets.length}" height="${H-B}" fill="#EEFE7A" opacity=".08"><title>Hoje</title></rect>`;
- const base=svg;svg='';for(const i of offsets){const v=i<0?history(i)?.opening:result[i].opening;if(v!=null){const barTop=Math.min(y(v),y(0)),cor=i<0?'#527568':(d=>{const s=state.movements.sale[i]??0;return s<=0||d>=s?'#14B8A6':d>=0.9*s?'#FACC15':'#FF6B5F';})(v+result[i].incoming);svg+=`<rect x="${x(i)-12}" y="${barTop}" width="24" height="${Math.max(1,Math.abs(y(v)-y(0)))}" fill="${cor}" opacity=".9"><title>${label(i)} · Abertura: ${fmt(v)} m³</title></rect>`;const rotulo=fmt(v),largura=Math.max(26,rotulo.length*7+10),comPilha=topoPilha(result,i)>Math.max(v,0),ry=comPilha?barTop+4:barTop-22;rot+=`<rect x="${x(i)-largura/2}" y="${ry}" width="${largura}" height="17" rx="4" fill="#EAF6E8" opacity=".92"/><text x="${x(i)}" y="${ry+12}" text-anchor="middle" fill="#14210F" font-size="11" font-weight="700">${rotulo}</text>`;}svg+=`<text x="${x(i)}" y="${H-17}" text-anchor="middle" fill="${day(i)===today?'#EEFE7A':'#BFD4A8'}" font-size="11" font-weight="${day(i)===today?'700':'400'}">${label(i)}</text><text x="${x(i)}" y="${H-4}" text-anchor="middle" fill="${day(i)===today?'#EEFE7A':'#7FA069'}" font-size="10">${diaSemana(i)}</text>`;}
- const barras1=svg;svg='';for(const [series,color,dash] of [[original,'#7FA069','5 5'],[result,'#EEFE7A','']])svg+=`<polyline points="${series.map((v,i)=>`${x(i)},${y(v.close)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2.5" stroke-dasharray="${dash}"/>`;
- const linhas1=svg;svg='';for(const i of offsets){const base0=Math.max(aberturaGrafico(result,i)??0,0);let cum=base0;for(const k of ENTRADAS_BLOCO){const [,nome,cor,valorEm]=movSeries.find(m=>m[0]===k);const v=valorEm(i)||0;if(v<=0)continue;svg+=`<rect x="${x(i)-12}" y="${y(cum+v)}" width="24" height="${Math.max(1,y(cum)-y(cum+v))}" fill="${cor}" opacity=".85"><title>${label(i)} · ${nome}: ${fmt(v)} m³</title></rect>`;if(y(cum)-y(cum+v)>=14)rot+=`<text x="${x(i)}" y="${(y(cum)+y(cum+v))/2+4}" text-anchor="middle" font-size="10" font-weight="700" fill="#0B1A0E">${fmt(v)}</text>`;cum+=v;}if(cum>base0)rot+=`<text x="${x(i)}" y="${y(cum)-6}" text-anchor="middle" font-size="11" font-weight="700" fill="#EAF6E8">${fmt(cum-base0)}</text>`;}
- const barras2=svg;svg='';for(const [chave,nome,cor,valorEm] of movSeries.filter(m=>!ENTRADAS_BLOCO.includes(m[0]))){const pontos=offsets.map(i=>[i,valorEm(i)]).filter(([,v])=>v!=null);if(!pontos.length)continue;svg+=`<polyline points="${pontos.map(([i,v])=>`${x(i)},${y(v)}`).join(' ')}" fill="none" stroke="${cor}" stroke-width="1.5" opacity=".85"/>`;for(const [i,v] of pontos)svg+=`<circle cx="${x(i)}" cy="${y(v)}" r="2.5" fill="${cor}"><title>${label(i)} · ${nome}: ${fmt(v)} m³</title></circle>`;}
- result.forEach((v,i)=>{svg+=`<circle cx="${x(i)}" cy="${y(v.close)}" r="4" fill="${status(v.close)==='danger'?'#FF6B5F':status(v.close)==='warn'?'#F97316':'#EEFE7A'}"><title>${label(i)} · Fechamento: ${fmt(v.close)} m³</title></circle>`;});
- const linhas2=svg;svg=base+linhas1+linhas2+barras1+barras2;
- // Area invisivel por dia, por cima de tudo, pra abrir o popup com o detalhamento completo daquele
- // dia (pedido da usuaria, 2026-10-01: "popupzinho com todas as infos que temos").
- const largura=(W-L-R)/offsets.length;
- for(const i of offsets)svg+=`<rect x="${x(i)-largura/2}" y="0" width="${largura}" height="${H-B}" fill="transparent" data-chart-day="${i}" tabindex="0" aria-label="Detalhes de ${esc(label(i))}"/>`;
- $('chart').innerHTML=svg+rot+'</svg>';}
+// Grafico no formato do Power BI (pedido da usuaria, 2026-10-09: "deixar + parecido o grafico de barras"):
+// barra larga empilhada = Lastro (faixa laranja na base) + Abertura − Lastro + entradas do dia (Recebimentos,
+// Bombeio, Rodoviario, FOB, CIF), rotulo dentro de cada pedaco, mesma cor em todos os dias; linhas de venda,
+// Disp. MIS por cima; eixo com dia da semana em cima e data embaixo.
+// Escala comeca no zero: estoque negativo nao desenha abaixo do eixo (2026-10-09) — so' o rotulo mostra.
+const COR_LASTRO='#F9B96B',COR_ABERTURA='#3AAE9C';
+function chart(result,original,offsets){
+ chartContext={result,offsets};
+ const W=1200,H=260,L=60,R=20,T=16,B=36;
+ const lastro=Math.max(state.lastro??0,0);
+ const movValores=movSeries.flatMap(([,,,f])=>offsets.map(f)).filter(v=>v!=null);
+ // Sem linha de fechamento/cenario original (usuaria, 2026-10-09: "n precisa disso"): escala so' pelas barras e linhas.
+ const values=result.map(x=>x.opening).concat(offsets.map(i=>topoPilha(result,i)),
+  parameters.slice(1).map(([k])=>state[k]).filter(v=>v!==null),movValores,[0]);
+ const hi=Math.max(...values),span=Math.max(hi,1);
+ const y=v=>T+(hi+span*.1-Math.max(v,0))/(span*1.2)*(H-T-B);
+ const cw=(W-L-R)/offsets.length,bw=cw*.78,x=i=>L+(i+7+.5)*cw;
+ const today=simulationToday();
+ let fundo=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Histórico de abertura e projeção de estoque em metros cúbicos"><rect x="${L}" y="0" width="${x(0)-L-cw/2}" height="${H-B}" fill="#ffffff04"/>`;
+ for(let j=0;j<5;j++){const v=hi*j/4;fundo+=`<path d="M${L} ${y(v)}H${W-R}" stroke="#314A32"/><text x="${L-8}" y="${y(v)+4}" fill="#7FA069" text-anchor="end" font-size="11">${fmt(v)}</text>`;}
+ const hojeI=offsets.find(i=>day(i)===today);
+ if(hojeI!=null)fundo+=`<rect x="${x(hojeI)-cw/2}" y="0" width="${cw}" height="${H-B}" fill="#EEFE7A" opacity=".08"><title>Hoje</title></rect>`;
+ // Barras empilhadas + rotulos (caixinha clara no meio de cada pedaco com altura suficiente).
+ let barras='',rot='';
+ const rotulo=(cx,cy,valor,cor='#14210F')=>{const t=fmt(valor),w=Math.max(24,t.length*7+8);return `<rect x="${cx-w/2}" y="${cy-8.5}" width="${w}" height="17" rx="4" fill="#EAF6E8" opacity=".92"/><text x="${cx}" y="${cy+4}" text-anchor="middle" fill="${cor}" font-size="11" font-weight="700">${t}</text>`;};
+ for(const i of offsets){
+  const ab=aberturaGrafico(result,i);
+  const pedacos=[];
+  if(ab!=null){const pos=Math.max(ab,0),l=Math.min(lastro,pos);pedacos.push(['Lastro mínimo',l,COR_LASTRO,false],['Abertura − lastro',pos-l,COR_ABERTURA,true]);}
+  for(const k of ENTRADAS_BLOCO){const [,nome,cor,valorEm]=movSeries.find(m=>m[0]===k);pedacos.push([nome,Math.max(valorEm(i)||0,0),cor,true]);}
+  let cum=0;
+  for(const [nome,v,cor,comRotulo] of pedacos){
+   if(v<=0)continue;
+   const topo=y(cum+v),alt=Math.max(1,y(cum)-topo);
+   barras+=`<rect x="${x(i)-bw/2}" y="${topo}" width="${bw}" height="${alt}" fill="${cor}"><title>${label(i)} · ${nome}: ${fmt(v)} m³${nome==='Abertura − lastro'?` (abertura ${fmt(ab)} m³)`:''}</title></rect>`;
+   if(comRotulo&&alt>=18)rot+=rotulo(x(i),topo+alt/2,v);
+   cum+=v;
+  }
+  // Abertura negativa nao tem barra: so' o rotulo vermelho rente ao eixo.
+  if(ab!=null&&ab<0)rot+=rotulo(x(i),y(0)-12,ab,'#B91C1C');
+  const ehHoje=day(i)===today;
+  barras+=`<text x="${x(i)}" y="${H-20}" text-anchor="middle" fill="${ehHoje?'#EEFE7A':'#BFD4A8'}" font-size="11" font-weight="${ehHoje?'700':'400'}">${diaSemana(i)}</text><text x="${x(i)}" y="${H-6}" text-anchor="middle" fill="${ehHoje?'#EEFE7A':'#7FA069'}" font-size="10" font-weight="${ehHoje?'700':'400'}">${label(i)}</text>`;
+ }
+ // Linhas de politica (sem o lastro, que ja' e' a faixa laranja da barra).
+ let politica='';
+ for(const [k,cor,traco] of [['min','#FF4D4D','3 4'],['mid','#9CA3AF','3 4'],['max','#4CAF1F','3 4'],['capacity','#38BDF8','']])if(state[k]!==null)politica+=`<path d="M${L} ${y(state[k])}H${W-R}" stroke="${cor}" stroke-width="${k==='capacity'?2:1.5}" stroke-dasharray="${traco}"><title>${k}: ${fmt(state[k])} m³</title></path>`;
+ // Linhas de venda/Disp. MIS por cima das barras.
+ let linhas='';
+ for(const [,nome,cor,valorEm] of movSeries.filter(m=>!ENTRADAS_BLOCO.includes(m[0]))){const pontos=offsets.map(i=>[i,valorEm(i)]).filter(([,v])=>v!=null);if(!pontos.length)continue;linhas+=`<polyline points="${pontos.map(([i,v])=>`${x(i)},${y(v)}`).join(' ')}" fill="none" stroke="${cor}" stroke-width="2"/>`;for(const [i,v] of pontos)linhas+=`<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="${cor}"><title>${label(i)} · ${nome}: ${fmt(v)} m³</title></circle>`;}
+ // Area invisivel por dia, por cima de tudo, pra abrir o popup com o detalhamento completo do dia.
+ let alvos='';
+ for(const i of offsets)alvos+=`<rect x="${x(i)-cw/2}" y="0" width="${cw}" height="${H-B}" fill="transparent" data-chart-day="${i}" tabindex="0" aria-label="Detalhes de ${esc(label(i))}"/>`;
+ $('chart').innerHTML=fundo+barras+politica+linhas+rot+alvos+'</svg>';
+}
 function popupGrafico(i){
  const {result,offsets}=chartContext||{};if(!result)return'';
  const futuro=i>=0;
