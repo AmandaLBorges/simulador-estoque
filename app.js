@@ -180,8 +180,12 @@ function recebidoPassado(i){return somaOuNula(registrosReais().map(r=>r.bi?.days
 // empresa do registro — pedido da usuaria, 2026-10-09: ver id da viagem, origem e destino tambem nos
 // dias passados (o que chegou) e no grafico. Usado pelos popups da grade (cenarios.js) e do grafico.
 function viagensDoDia(i,modal){return registrosReais().flatMap(r=>(D.transitoAoVivo?.[r.bi?.emp_dep]?.[r.bi?.material]?.[day(i)]?.viagens||[]).filter(v=>!modal||v.modal===modal).map(v=>({...v,destino:[cidadeDe(r),depositoDe(r),empresaDe(r)].filter(Boolean).join(' · ')})));}
+// Volume FOB do dia que so' esta' nele pela regra das 15h (ETA Herrlog >= 15h -> D+1, inbound.py:
+// HORA_CORTE_DESCARGA) — pintado de roxo no grafico e na grade (pedido da usuaria, 2026-10-09).
+const COR_FOB_D1='#C084FC';
+function fobAposCorte(i){return somaOuNula(viagensDoDia(i,'fob').filter(v=>v.aposCorte&&v.grupo!=='programado').map(v=>v.volume||0));}
 function linhaViagemHtml(v){const prog=v.grupo==='programado',quando=v.chegadaReal?'chegou '+new Date(v.chegadaReal).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):v.eta?'ETA '+new Date(v.eta).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
- return `<div style="color:${prog?'#F97316':'#60A5FA'}"><dt>${prog?'Não programado (sem placa) · ':''}${v.modal==='cif'?'CIF · ':''}Viagem ${esc(v.idViagem||'s/ id')}</dt><dd>Origem: ${esc(v.fornecedor||'—')} → Destino: ${esc(v.destino||'—')}<br>${[v.transportador,v.placa].filter(Boolean).map(esc).join(' · ')}${v.transportador||v.placa?' · ':''}${fmt(v.volume)} m³${v.status?' · '+esc(v.status):''}${v.status==='Em Andamento'&&v.kmRestante!=null?' · '+fmt(v.kmRestante)+' km restantes':''}${quando?' · '+quando:''}${v.dataProgramacao?' · programação '+esc(v.dataProgramacao):''}</dd></div>`;}
+ return `<div style="color:${prog?'#F97316':'#60A5FA'}"><dt>${prog?'Não programado (sem placa) · ':''}${v.modal==='cif'?'CIF · ':''}Viagem ${esc(v.idViagem||'s/ id')}</dt><dd>Origem: ${esc(v.fornecedor||'—')} → Destino: ${esc(v.destino||'—')}<br>${[v.transportador,v.placa].filter(Boolean).map(esc).join(' · ')}${v.transportador||v.placa?' · ':''}${fmt(v.volume)} m³${v.status?' · '+esc(v.status):''}${v.status==='Em Andamento'&&v.kmRestante!=null?' · '+fmt(v.kmRestante)+' km restantes':''}${quando?' · '+quando:''}${v.aposCorte?` · <strong style="color:${COR_FOB_D1}">ETA após 15h → considerado no dia seguinte</strong>`:''}${v.dataProgramacao?' · programação '+esc(v.dataProgramacao):''}</dd></div>`;}
 function vendaRealPassado(i){return history(i)?.sale??somaOuNula(registrosReais().map(r=>r.bi?.days?.[day(i)]?.billing));}
 function valorPassado(k,i,result){
  if(k==='opening')return history(i)?.opening??null;
@@ -246,6 +250,8 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  // usuaria, 2026-10-05: "mostra a ultima data que puxou... uma cor diferente pra mostrar que nao e'
  // a do dia". O detalhe de qual base exatamente (no combinado) fica no popup, ao passar o mouse/clicar.
  document.querySelectorAll('[data-result]').forEach(td=>{const i=+td.dataset.day,k=td.dataset.result;const v=i<0?valorPassado(k,i,result):result[i][k];const ehAbertura=k==='opening'&&i===0,dias=ehAbertura?diasAtrasoAbertura():0;td.textContent=(dias>0?'⚠ ':'')+fmt(v);td.className=(i<0?'history ': '')+(i===0?'today ':'')+(dias>0?(dias>=DIAS_ABERTURA_GRAVE?'atrasada-grave ':'atrasada '):'')+(k==='opening'?capBand(v):(['close','available'].includes(k)?(v==null?'':status(v)):''));});
+ // Borda roxa no FOB que tem volume empurrado pra D+1 pela regra das 15h (detalhe no popup da celula).
+ document.querySelectorAll('[data-row="fob"]').forEach(input=>{const i=+input.dataset.day,d1=fobAposCorte(i);input.parentElement.classList.toggle('fob-d1',d1>0&&state.movements.fob[i]>=d1);});
  document.querySelectorAll('[data-row]').forEach(input=>input.parentElement.classList.toggle('edited',state.movements[input.dataset.row][+input.dataset.day]!==baseline.movements[input.dataset.row][+input.dataset.day]));
  chart(result,original,Array.from({length:7+n},(_,i)=>i-7));alerts(result);
 }
@@ -295,7 +301,7 @@ document.addEventListener('click',e=>{if(e.target.closest('#toggle-historico')){
 // barra larga empilhada = Lastro (faixa laranja na base) + Abertura − Lastro + entradas do dia (Recebimentos,
 // Bombeio, Rodoviario, FOB, CIF), rotulo dentro de cada pedaco, mesma cor em todos os dias; linhas de venda,
 // Disp. MIS por cima; eixo com dia da semana em cima e data embaixo.
-// Escala comeca no zero: estoque negativo nao desenha abaixo do eixo (2026-10-09) — so' o rotulo mostra.
+// Escala comeca no zero: estoque negativo nao aparece no grafico (2026-10-09); o valor continua na tabela.
 const COR_LASTRO='#F9B96B',COR_ABERTURA='#3AAE9C';
 function chart(result,original,offsets){
  chartContext={result,offsets};
@@ -320,7 +326,13 @@ function chart(result,original,offsets){
   const ab=aberturaGrafico(result,i);
   const pedacos=[];
   if(ab!=null){const pos=Math.max(ab,0),l=Math.min(lastro,pos);pedacos.push(['Lastro mínimo',l,COR_LASTRO,false],['Abertura − lastro',pos-l,COR_ABERTURA,true]);}
-  for(const k of ENTRADAS_BLOCO){const [,nome,cor,valorEm]=movSeries.find(m=>m[0]===k);pedacos.push([nome,Math.max(valorEm(i)||0,0),cor,true]);}
+  for(const k of ENTRADAS_BLOCO){
+   const [,nome,cor,valorEm]=movSeries.find(m=>m[0]===k),v=Math.max(valorEm(i)||0,0);
+   // FOB empurrado pra D+1 pela regra das 15h vira um pedaco roxo separado (so' ate' o FOB aplicado no dia).
+   const d1=k==='fob'?Math.min(fobAposCorte(i)||0,v):0;
+   pedacos.push([nome,v-d1,cor,true]);
+   if(d1>0)pedacos.push(['Trânsito FOB · ETA após 15h do dia anterior (D+1)',d1,COR_FOB_D1,true]);
+  }
   let cum=0;
   for(const [nome,v,cor,comRotulo] of pedacos){
    if(v<=0)continue;
@@ -329,8 +341,7 @@ function chart(result,original,offsets){
    if(comRotulo&&alt>=18)rot+=rotulo(x(i),topo+alt/2,v);
    cum+=v;
   }
-  // Abertura negativa nao tem barra: so' o rotulo vermelho rente ao eixo.
-  if(ab!=null&&ab<0)rot+=rotulo(x(i),y(0)-12,ab,'#B91C1C');
+  // Abertura negativa: nem barra nem rotulo (usuaria, 2026-10-09: "o que for negativo, nao precisa mostrar").
   const ehHoje=day(i)===today;
   barras+=`<text x="${x(i)}" y="${H-20}" text-anchor="middle" fill="${ehHoje?'#EEFE7A':'#BFD4A8'}" font-size="11" font-weight="${ehHoje?'700':'400'}">${diaSemana(i)}</text><text x="${x(i)}" y="${H-6}" text-anchor="middle" fill="${ehHoje?'#EEFE7A':'#7FA069'}" font-size="10" font-weight="${ehHoje?'700':'400'}">${label(i)}</text>`;
  }
