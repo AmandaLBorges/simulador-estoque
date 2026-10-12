@@ -195,6 +195,22 @@ function valorPassado(k,i,result){
  return null;
 }
 function status(v){return E.stockBand(v,state);}
+// Horario da ultima atualizacao de CADA fonte, embaixo do nome da linha (pedido da usuaria, 2026-10-10:
+// "em cada um dos campos o ultimo horario que subiu e sincronizou"). Arquivos: hora em que a extracao
+// gravou a planilha (bi.fontesAtualizadas); faturamento/VMD: hora da consulta ao banco (extractedAt);
+// transito: hora da ultima atualizacao em tempo real (SIM_TRANSITO_EM, online.js).
+const NOME_FONTE={abertura:'planilha de abertura',politica:'Premissas Politica Estoques.xlsx',le:'LE vigente',va05:'SAP VA05 (pedidos)',cadencia:'cadência MIS',dispMis:'Disp. MIS',recebimentos:'SAP movimentações',faturamento:'banco de faturamento (DW)',vmd:'LE + faturamento (reprojeção)',transito:'portal inbound + Herrlog (tempo real)'};
+function quandoFmt(valor){if(!valor)return null;const d=new Date(valor);if(isNaN(d))return null;const hm=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});return new Date().toDateString()===d.toDateString()?`hoje ${hm}`:`${d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})} ${hm}`;}
+function horaFonte(fonte){
+ if(!fonte)return'';const f=D.bi?.fontesAtualizadas||{};let quando=null;
+ if(fonte==='transito')quando=window.SIM_TRANSITO_EM;
+ else if(fonte==='faturamento'||fonte==='vmd'){if(f[fonte==='vmd'?'reprojecaoOk':'faturamentoOk']===false)return `<small class="fonte-hora alerta" title="O banco de faturamento não respondeu na última atualização">⚠ banco sem resposta</small>`;quando=D.bi?.extractedAt;}
+ else quando=f[fonte];
+ const txt=quandoFmt(quando);if(!txt)return'';
+ const nome=fonte==='le'&&f.leNome?`LE vigente (${f.leNome})`:NOME_FONTE[fonte]||fonte;
+ return `<small class="fonte-hora" data-fonte="${fonte}" title="Fonte: ${esc(nome)} · atualizada em ${new Date(quando).toLocaleString('pt-BR')}">${txt}${fonte==='transito'?' · tempo real':''}</small>`;}
+// Qual fonte alimenta a linha de vendas, conforme o botao de cenario escolhido.
+const fonteDaVenda=()=>({VMD:'vmd',LE:'le','Pedidos em tela':'va05',Real:'faturamento','Disp MIS':'dispMis'})[state?.scenario]||null;
 function render(rebuild=false){const result=E.calculate(state,n),original=E.calculate(baseline,n);
  $('source').textContent=`Abertura real de ${label(0)}/${D.date.slice(0,4)} • ${record.base} • ${record.product}. Próximos 14 dias preenchidos com o LE vigente, FOB/CIF e programação MIS. Extração: ${D.bi.extractedAt.replace('T',' ')}. Todos os volumes em m³.`;
  $('dia-atual-aviso').textContent=`Hoje: ${new Date(simulationToday()+'T12:00:00').toLocaleDateString('pt-BR')} · abertura de referência: ${label(0)} (última planilha preenchida). Dias anteriores a hoje usam o realizado; hoje e os próximos dias usam pedidos e previsão.`;
@@ -205,15 +221,15 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  $('cards').innerHTML=[['Abertura de referência',fmt(state.opening),'m³ · início do dia'],['Fechamento ao fim de 14 dias',fmt(last),`m³ · diferença de ${fmt(last-original.at(-1).close)} vs. original`],['Menor estoque no período',fmt(low),'m³ · abertura e fechamento'],['Primeira atenção',first<0?'Sem alerta de limite':label(first),first<0?'Verifique os limites e campos não preenchidos':'Confira os pontos de atenção abaixo']].map(([title,value,sub],i)=>`<article class="card"><small>${title}</small><strong class="${i===2?status(low):''}">${value}</strong><em>${sub}</em></article>`).join('');
  const passado=mostrarHistoricoGrade?5:0;const offsets=Array.from({length:passado+n},(_,i)=>i-passado);
  if(rebuild){let html=`<thead><tr><th class="row-controls"><button type="button" id="toggle-historico" title="Mostrar ou ocultar o histórico dos 5 dias anteriores">${mostrarHistoricoGrade?'−':'+'} dias</button> <button type="button" id="toggle-info" title="Mostrar ou ocultar as linhas de referência (em itálico)">${mostrarInfoGrade?'−':'+'} linhas</button></th><th class="row-label">Movimento / m³</th>`+offsets.map(i=>`<th class="${i<0?'history':i===0?'today':''}">${label(i)}<br><span class="dia-semana">${diaSemana(i)}</span><br><small>${i<0?'Histórico':i===0?'Referência':'Simulação'}</small></th>`).join('')+'</tr></thead><tbody>';
- const outputRow=(key,name)=>`<tr class="total"><th class="row-controls"></th><th class="row-label">${name}</th>${offsets.map(i=>`<td data-result="${key}" data-day="${i}"></td>`).join('')}</tr>`;
- html+=outputRow('opening','Estoque inicial · abertura');html+=outputRow('lastro','Lastro mínimo');html+=outputRow('openingNet','Abertura menos lastro');
+ const outputRow=(key,name,fonte)=>`<tr class="total"><th class="row-controls"></th><th class="row-label">${name}${horaFonte(fonte)}</th>${offsets.map(i=>`<td data-result="${key}" data-day="${i}"></td>`).join('')}</tr>`;
+ html+=outputRow('opening','Estoque inicial · abertura','abertura');html+=outputRow('lastro','Lastro mínimo','politica');html+=outputRow('openingNet','Abertura menos lastro');
  // 4 linhas informativas (so' leitura, nao entram no calculo) mostrando as referencias da venda antes
  // da linha editavel que realmente debita do estoque — pedido da usuaria, 2026-09-30: ver as 4 fontes
  // (VMD reprojetada, LE original sem reprojecao, Pedidos em tela = VA05 total do dia/todos os status,
  // faturamento real) fixas, lado a lado com o que foi aplicado (que o usuario escolhe puxar ou digitar).
  // dentroDoGrupo: linha no meio do rowspan da coluna de botoes — nao emite a celula de controle.
  // Recolhidas por padrao, igual ao historico; botao "+ linhas" no canto (pedido da usuaria, 2026-10-09).
- const infoRow=(titulo,getter,dentroDoGrupo=false)=>!mostrarInfoGrade?'':`<tr class="info-row">${dentroDoGrupo?'':'<th class="row-controls"></th>'}<th class="row-label">↳ ${titulo}</th>${offsets.map(i=>`<td class="history${i===0?' today':''}">${fmt(getter(i))}</td>`).join('')}</tr>`;
+ const infoRow=(titulo,getter,dentroDoGrupo=false,fonte=null)=>!mostrarInfoGrade?'':`<tr class="info-row">${dentroDoGrupo?'':'<th class="row-controls"></th>'}<th class="row-label">↳ ${titulo}${horaFonte(fonte)}</th>${offsets.map(i=>`<td class="history${i===0?' today':''}">${fmt(getter(i))}</td>`).join('')}</tr>`;
  // Pedido da usuaria, 2026-10-01: "Recebimento adicional manual" e "Programação adicional manual"
  // tiradas da tabela (ficavam sempre zeradas, so' poluiam a visao). O calculo continua somando o que
  // ja estiver salvo nesses campos (E.rows/motor.js inalterado); so' nao aparecem mais como linha editavel.
@@ -229,20 +245,20 @@ function render(rebuild=false){const result=E.calculate(state,n),original=E.calc
  for(const [k,l,sign] of E.rows){
   if(['received','planned','transferIn','transferOut'].includes(k))continue;
   // So' tem valor nos dias de historico (botao "+" da grade); referencia, nao entra no calculo.
-  if(k===entradaKeys[0])html+=infoRow('Recebimentos reais (SAP)',i=>i<0?recebidoPassado(i):null);
+  if(k===entradaKeys[0])html+=infoRow('Recebimentos reais (SAP)',i=>i<0?recebidoPassado(i):null,false,'recebimentos');
   if(k==='sale'){
-   html+=infoRow('VMD reprojetada',i=>record.bi?.days[day(i)]?.vmd);
-   html+=infoRow('LE vigente (sem reprojeção)',i=>record.bi?.semana?.porDia?.[day(i)]?.le);
-   html+=infoRow('Pedidos em tela',i=>record.bi?.days[day(i)]?.billing);
-   html+=infoRow('Vendas reais (faturamento)',i=>record.bi?.semana?.porDia?.[day(i)]?.real);
+   html+=infoRow('VMD reprojetada',i=>record.bi?.days[day(i)]?.vmd,false,'vmd');
+   html+=infoRow('LE vigente (sem reprojeção)',i=>record.bi?.semana?.porDia?.[day(i)]?.le,false,'le');
+   html+=infoRow('Pedidos em tela',i=>record.bi?.days[day(i)]?.billing,false,'va05');
+   html+=infoRow('Vendas reais (faturamento)',i=>record.bi?.semana?.porDia?.[day(i)]?.real,false,'faturamento');
   }
   const controlCell=k===entradaKeys[0]?`<th rowspan="${entradaKeys.length+(mostrarInfoGrade&&entradaKeys.includes('fob')?1:0)}" class="row-controls" id="entrada-controls-cell"></th>`
    :k===saidaKeys[0]?`<th rowspan="${saidaKeys.length}" class="row-controls" id="scenario-controls-cell"></th>`:'';
-  const rotulo=k==='fob'?'Trânsito FOB · programado (com placa)':l;
+  const rotulo=(k==='fob'?'Trânsito FOB · programado (com placa)':l)+horaFonte({fob:'transito',cif:'transito',pump:'cadencia',sale:fonteDaVenda()}[k]);
   html+=`<tr class="${sign>0?'entry':'exit'}">${controlCell}<th class="row-label">${sign>0?'+':'−'} ${rotulo}</th>`+offsets.map(i=>i<0?`<td class="history${i===0?' today':''}"${['fob','cif'].includes(k)?` data-transito="${k}" data-day="${i}"`:''} title="${k==='sale'?'Faturamento pendente de integração':['fob','cif'].includes(k)?'':'Informação histórica da fonte'}">${fmt(['fob','cif'].includes(k)?transitoPassado(i,k):history(i)?.[k])}</td>`:`<td class="${i===0?'today':''}"><input type="number" step="any" min="0" data-row="${k}" data-day="${i}" aria-label="${l} ${label(i)}" value="${Math.round(state.movements[k][i])}" title="${esc(sourceNote(k,i))}"></td>`).join('')+'</tr>';
   // Linha logo abaixo do FOB (pedido da usuaria, 2026-10-08) — so' referencia; entra na conta apenas
   // com a origem de entrada "Programado + Não programado".
-  if(k==='fob')html+=infoRow('Trânsito FOB · não programado (sem placa)',i=>somaOuNula(registrosReais().map(r=>fobNaoProgramado(r,day(i)))),true);
+  if(k==='fob')html+=infoRow('Trânsito FOB · não programado (sem placa)',i=>somaOuNula(registrosReais().map(r=>fobNaoProgramado(r,day(i)))),true,'transito');
  }
  for(const [k,l] of [['incoming','Total de entradas'],['outgoing','Total de saídas']])html+=outputRow(k,l);
  $('grid').innerHTML=html+'</tbody>';}
