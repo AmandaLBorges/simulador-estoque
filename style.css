@@ -169,3 +169,6 @@ td.danger{background:#8B0000!important;color:white!important;box-shadow:inset 0 
 .semana-progresso-tabela tbody th{text-align:left;color:var(--dim)}
 .semana-progresso-tabela td,.semana-progresso-tabela tbody th{color:var(--text)}
 .semana-progresso-tabela .today{background:#8dc8302b;color:#EEFE7A;font-weight:700}
+/* Cadencia sugerida: dia em que o estoque encosta no minimo, mas a carga nao cabe no tanque. */
+#grid td.sugestao-nao-cabe{background:#8B000055!important}#grid td.sugestao-nao-cabe input{border-color:var(--danger);box-shadow:inset 0 0 0 1px var(--danger)}
+#grid tr.entry:has([data-row="planned"]) th.row-label{color:#d9f99d}

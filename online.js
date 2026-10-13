@@ -168,7 +168,7 @@ onAuthStateChanged(auth, async user => {
         return Object.fromEntries(dias.map((dia, i) => [dia, arvores[i]]));
       },
     };
-    for (const name of ['motor.js', 'app.js', 'editor.js', 'automatico.js', 'cenarios.js', 'compartilhado.js', 'dia.js']) await script(name);
+    for (const name of ['motor.js', 'sugestao.js', 'app.js', 'editor.js', 'automatico.js', 'cenarios.js', 'compartilhado.js', 'dia.js']) await script(name);
     started = true;
     registrarAtividade(true);
     document.body.classList.remove('auth-pending'); el('login-screen').hidden = true;
