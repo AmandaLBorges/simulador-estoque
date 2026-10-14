@@ -213,7 +213,37 @@ body.visao-dia-aberta>header,body.visao-dia-aberta>main{display:none}
 @keyframes pisca{0%,100%{opacity:1}50%{opacity:.35}}
 .matriz-risco td.critico-hoje button,.ranking-barra.critico-hoje{animation:pisca .8s ease-in-out infinite}
 .matriz-risco td.critico button,.ranking-barra.critico{animation:pisca 1.4s ease-in-out infinite}
-.matriz-risco td.atencao button,.ranking-barra.atencao{animation:pisca 2s ease-in-out infinite}
 .matriz-risco td button:hover{animation-play-state:paused}
 @media(prefers-reduced-motion:reduce){.matriz-risco td button,.ranking-barra{animation:none!important}}
 .ranking-barra.neutra{background:#3AAE9C}
+#matriz-popover{position:fixed;z-index:100;width:max-content;min-width:min(280px,calc(100vw - 16px));max-width:min(520px,calc(100vw - 16px));padding:14px 16px;background:#272a2d;color:#fff;border:1px solid #92999f;border-radius:12px;box-shadow:0 6px 24px #0006;pointer-events:none;font-size:13px}
+#matriz-popover p{margin:4px 0;color:#e0e5e8;font-size:12px}
+#matriz-popover dl{margin:10px 0;border-block:1px solid #52575b;padding:6px 0}
+#matriz-popover dl div{padding:4px 0}
+#matriz-popover dt{font-weight:700;font-size:12px}
+#matriz-popover dd{margin:0;font-size:12px;color:#e0e5e8}
+/* Abas da pagina, no estilo do portal inbound (2026-10-14) */
+.abas-bar{display:flex;gap:2px;margin:0 16px 16px;border-bottom:1px solid var(--border);overflow-x:auto;scrollbar-width:thin}
+.abas-bar button{flex:none;background:none;border:0;border-bottom:2px solid transparent;border-radius:0;padding:12px 18px;color:var(--muted);font-weight:600;font-size:14px;white-space:nowrap;cursor:pointer}
+.abas-bar button:hover{color:var(--dim);background:#ffffff06}
+.abas-bar button[aria-selected="true"]{color:#EEFE7A;border-bottom-color:#EEFE7A;background:linear-gradient(to bottom,transparent 60%,#8dc8301f)}
+body[data-aba="simulacao"] main>:not([data-aba~="simulacao"]),
+body[data-aba="alertas"] main>:not([data-aba~="alertas"]),
+body[data-aba="cenario"] main>:not([data-aba~="cenario"]),
+body[data-aba="historico"] main>:not([data-aba~="historico"]){display:none!important}
+/* Ranking + quadro por produto lado a lado */
+.ranking-corpo{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+@media(max-width:1000px){.ranking-corpo{grid-template-columns:1fr}}
+button.ranking-linha{width:100%;background:none;border:0;border-radius:6px;padding:2px 4px;cursor:pointer;text-align:left;color:inherit;font:inherit}
+button.ranking-linha:hover{background:#ffffff08}
+button.ranking-linha.selecionada{background:#EEFE7A1a;box-shadow:inset 0 0 0 1px #EEFE7A66}
+.ranking-produtos{border-left:1px solid var(--border);padding-left:20px}
+@media(max-width:1000px){.ranking-produtos{border-left:0;padding-left:0}}
+.ranking-produtos-topo{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:14px}
+.ranking-produtos-topo small{color:var(--muted);font-size:11px}
+.ranking-produtos-topo button{padding:4px 10px;font-size:11px}
+.ranking-produtos-tabela{width:100%;border-collapse:collapse;font-size:12px}
+.ranking-produtos-tabela th,.ranking-produtos-tabela td{padding:7px 8px;border-bottom:1px solid var(--border);text-align:right;font-variant-numeric:tabular-nums}
+.ranking-produtos-tabela thead th{color:var(--dim);font-weight:600;font-size:11px}
+.ranking-produtos-tabela th:first-child{text-align:left;color:#EEFE7A;font-weight:700}
+.ranking-produtos-tabela thead th:first-child{color:var(--dim)}

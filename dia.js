@@ -6,7 +6,6 @@
 (() => {
   const cloud = window.SIM_CLOUD;
   const view = $('dia-view'), abrir = $('ver-dia'), fechar = $('dia-fechar');
-  abrir.hidden = false;
 
   // Janela e regras (mesmas de antes, so' que em hoje + 5 dias, nao 14):
   // critico = fechamento negativo ou abaixo do lastro em algum dia; atencao = sem critico, mas algum dia
@@ -23,8 +22,8 @@
   const COLUNAS = [['Gasolina A', 'Gasolina'], ['Gasolina Premium', 'Gasolina Premium'], ['Diesel S10 A', 'S10'],
     ['Diesel S500 A', 'S500'], ['Etanol Anidro', 'Anidro'], ['Etanol Hidratado', 'Hidratado'], ['Biodiesel', 'B100']];
 
-  function abrirCenario(base, produto) {
-    view.hidden = true; document.body.classList.remove('visao-dia-aberta');
+  function abrirCenario(base, produto, cenario = CENARIO) {
+    trocarAba('simulacao');
     // Mesmo caminho de quem escolhe na mao (onchange), pra marcar os chips de deposito/empresa —
     // so' trocar o .value dos selects deixava a tela sem base selecionada.
     const registro = D.records.find(r => r.base === base && r.product === produto) || D.records.find(r => r.base === base);
@@ -34,7 +33,7 @@
       $('empresa').value = empresaDe(registro); $('empresa').onchange();
     }
     if ([...$('product').options].some(o => o.value === produto)) $('product').value = produto;
-    $('scenario').value = CENARIO; select();
+    $('scenario').value = cenario; select();
     scrollTo({top: 0, behavior: 'smooth'});
   }
 
@@ -91,18 +90,18 @@
     if (it.situacao === 'atencao') return 'Atenção';
     return it.situacao === 'critico-hoje' ? 'NOK · hoje' : `NOK · ${dataCurta(it.primeiroCritico)}`;
   }
-  function dicaCelula(c) {
-    const it = c.pior, onde = `${depositoDe(it.registro)} · ${empresaDe(it.registro)}`;
-    const linhas = [`${it.cidade} · ${it.produto}: ${SITUACOES[it.situacao].rotulo}`,
-      `Pior depósito: ${onde}`, `Menor fechamento: ${fmt(it.menor)} m³ em ${dataCurta(it.diaMenor)}`];
-    if (it.ruptura) linhas.push(`Ruptura (estoque negativo) a partir de ${dataCurta(it.ruptura)}`);
-    if (c.itens.length > 1) linhas.push(`${c.itens.length} depósitos/empresas nesta cidade; clique para abrir o pior no simulador.`);
-    else linhas.push('Clique para abrir no simulador.');
-    return linhas.join('\n');
+  // Popup ao passar o mouse na celula (pedido da usuaria, 2026-10-14: os cartoes por cidade sairam;
+  // o detalhe aparece so' ao "relar" no dia). Uma linha por deposito/empresa da cidade, pior primeiro.
+  function popupCelula(c) {
+    const it = c.pior;
+    const depositos = [...c.itens].sort((a, b) => SITUACOES[a.situacao].peso - SITUACOES[b.situacao].peso || a.menor - b.menor);
+    return `<strong>${esc(it.cidade)} · ${esc(it.produto)}</strong><p>${esc(SITUACOES[it.situacao].rotulo)}, de ${dataCurta(it.inicio)} a ${dataCurta(it.fim)}</p>`
+      + `<dl>${depositos.map(d => `<div><dt>${esc(depositoDe(d.registro))} · ${esc(empresaDe(d.registro))}</dt><dd>${esc(SITUACOES[d.situacao].rotulo)} · menor ${fmt(d.menor)} m³ em ${dataCurta(d.diaMenor)}${d.ruptura ? ` · ruptura ${dataCurta(d.ruptura)}` : ''}</dd></div>`).join('')}</dl>`
+      + `<p>Clique para abrir ${depositos.length > 1 ? 'o pior depósito' : 'este depósito'} no simulador.</p>`;
   }
 
   const campoRegiao = $('semana-regiao'), campoBusca = $('semana-base'), campoSituacao = $('semana-situacao'),
-    statusEl = $('semana-status'), barra = $('semana-barra'), tabela = $('matriz-risco'), lista = $('semana-lista'),
+    statusEl = $('semana-status'), barra = $('semana-barra'), tabela = $('matriz-risco'), popup = $('matriz-popover'),
     campoProdutoRanking = $('ranking-produto'), ranking = $('ranking-lista');
 
   // Ranking de dias de estoque por cidade (pedido da usuaria, 2026-10-14, igual ao visual "Ranking Dias
@@ -131,15 +130,43 @@
     const linhas = [...porCidade.entries()].filter(([, c]) => c.vmd > 0).map(([cidade, c]) => ({cidade, dias: c.abertura / c.vmd, ...c, situacao: escolhido ? piorSituacao(cidade) : 'neutra'}))
       .sort((a, b) => b.dias - a.dias);
     const maximo = Math.max(...linhas.map(l => l.dias), 1);
+    if (cidadeRanking && !linhas.some(l => l.cidade === cidadeRanking)) cidadeRanking = null;
     ranking.innerHTML = !linhas.length ? '<p class="muted">Sem VMD para calcular os dias de estoque.</p>'
-      : linhas.map(l => `<div class="ranking-linha" title="${esc(`${l.cidade}: abertura ${fmt(l.abertura)} m³ ÷ VMD ${fmt(l.vmd)} m³/dia = ${l.dias.toFixed(1).replace('.', ',')} dias`)}">
+      : linhas.map(l => `<button type="button" class="ranking-linha${l.cidade === cidadeRanking ? ' selecionada' : ''}" data-ranking-cidade="${esc(l.cidade)}" title="${esc(`${l.cidade}: abertura ${fmt(l.abertura)} m³ ÷ VMD ${fmt(l.vmd)} m³/dia = ${dias1(l.dias)} dias. Clique para ver por produto.`)}">
         <span class="ranking-cidade">${esc(l.cidade)}</span>
         <span class="ranking-trilho"><span class="ranking-barra ${l.situacao}" style="width:${Math.max(1, l.dias / maximo * 100)}%"></span></span>
-        <span class="ranking-valor">${l.dias.toFixed(1).replace('.', ',')}</span></div>`).join('');
+        <span class="ranking-valor">${dias1(l.dias)}</span></button>`).join('');
+    renderPorProduto(itens, colunas);
   }
+  const dias1 = v => v.toFixed(1).replace('.', ',');
+
+  // Quadro por produto ao lado do ranking (pedido da usuaria, 2026-10-14, igual ao BI: Abertura Estoque,
+  // VMD Planejada, Dias Estoque), mais o tamanho do tanque. Todas as cidades, ou a cidade clicada no ranking.
+  let cidadeRanking = null;
+  function renderPorProduto(itens, colunas) {
+    const alvo = $('ranking-produtos');
+    const escolhidos = itens.filter(it => !cidadeRanking || it.cidade === cidadeRanking);
+    const linhas = colunas.map(([produto, rotulo]) => {
+      const doProduto = escolhidos.filter(it => it.produto === produto);
+      if (!doProduto.length) return null;
+      const soma = f => doProduto.reduce((s, it) => s + f(it), 0);
+      const abertura = soma(it => Math.max(it.aberturaHoje, 0)), vmd = soma(it => Math.max(it.vmdHoje, 0));
+      const tanque = soma(it => it.registro.capacidadeFisica || it.registro.policy?.capacity || 0);
+      return {rotulo, abertura, vmd, tanque, dias: vmd > 0 ? abertura / vmd : null};
+    }).filter(Boolean);
+    alvo.innerHTML = `<div class="ranking-produtos-topo"><strong>${esc(cidadeRanking || 'Todas as cidades')}</strong>${cidadeRanking ? ' <button type="button" id="ranking-limpar">ver todas</button>' : '<small>clique numa cidade do ranking para filtrar</small>'}</div>
+      <table class="ranking-produtos-tabela"><thead><tr><th>Produto</th><th>Abertura estoque</th><th>VMD planejada</th><th>Dias de estoque</th><th>Tamanho do tanque</th></tr></thead>
+      <tbody>${linhas.map(l => `<tr><th>${esc(l.rotulo)}</th><td>${fmt(l.abertura)}</td><td>${fmt(l.vmd)}</td><td>${l.dias == null ? '—' : dias1(l.dias)}</td><td>${l.tanque ? fmt(l.tanque) : '—'}</td></tr>`).join('')}</tbody></table>
+      <p class="muted ranking-nota">Volumes em m³ (VMD em m³ por dia). Tanque: capacidade da planilha de tancagem; sem ela, a do MIS.</p>`;
+  }
+  $('ranking-dias-bloco').addEventListener('click', event => {
+    const linha = event.target.closest('[data-ranking-cidade]');
+    if (linha) { cidadeRanking = cidadeRanking === linha.dataset.rankingCidade ? null : linha.dataset.rankingCidade; render(); return; }
+    if (event.target.closest('#ranking-limpar')) { cidadeRanking = null; render(); }
+  });
 
   function render() {
-    statusEl.textContent = 'Calculando…'; barra.innerHTML = ''; tabela.innerHTML = ''; lista.innerHTML = ''; ranking.innerHTML = '';
+    statusEl.textContent = 'Calculando…'; barra.innerHTML = ''; tabela.innerHTML = ''; ranking.innerHTML = ''; fecharPopup();
     let itens = calcular();
     const regiao = campoRegiao.value, busca = campoBusca.value.trim().toLowerCase();
     itens = itens.filter(it => (!regiao || cloud.regionOf(it.registro.base) === regiao) && (!busca || it.cidade.toLowerCase().includes(busca)));
@@ -169,23 +196,30 @@
       + cidades.map(cid => `<tr><th>${esc(cid)}</th>${colunas.map(([p]) => {
         const c = celulas.get(`${cid}|${p}`);
         if (!c || !passaSituacao(c)) return '<td class="vazio">—</td>';
-        return `<td class="${c.pior.situacao}"><button type="button" data-abrir="${esc(c.pior.registro.base)}|${esc(p)}" title="${esc(dicaCelula(c))}">${textoCelula(c)}</button></td>`;
+        return `<td class="${c.pior.situacao}"><button type="button" data-abrir="${esc(c.pior.registro.base)}|${esc(p)}" data-celula="${esc(`${cid}|${p}`)}" aria-label="${esc(`${cid} · ${p}: ${SITUACOES[c.pior.situacao].rotulo}`)}">${textoCelula(c)}</button></td>`;
       }).join('')}</tr>`).join('') + '</tbody>';
-
-    // Embaixo da matriz: so' as cidades com problema, 1 linha por produto NOK com o pior deposito.
-    lista.innerHTML = cidades.map(cid => {
-      const ruins = colunas.map(([p, rotulo]) => [rotulo, celulas.get(`${cid}|${p}`)]).filter(([, c]) => c && c.pior.situacao !== 'ok' && passaSituacao(c));
-      if (!ruins.length) return '';
-      const pior = ruins.reduce((a, b) => (SITUACOES[a[1].pior.situacao].peso <= SITUACOES[b[1].pior.situacao].peso ? a : b))[1].pior.situacao;
-      return `<div class="card dia-${pior}"><h3>${esc(cid)}</h3><ul class="causas-lista">${ruins.map(([rotulo, c]) => {
-        const it = c.pior;
-        return `<li><b>${esc(rotulo)}</b> <span class="tag">${esc(depositoDe(it.registro))} · ${esc(empresaDe(it.registro))}</span> — ${SITUACOES[it.situacao].rotulo}, menor fechamento ${fmt(it.menor)} m³ em ${dataCurta(it.diaMenor)}${it.ruptura ? ` · ruptura ${dataCurta(it.ruptura)}` : ''}</li>`;
-      }).join('')}</ul></div>`;
-    }).join('');
+    celulasAtuais = celulas;
   }
 
-  for (const el of [tabela, lista]) el.addEventListener('click', event => {
+  let celulasAtuais = new Map();
+  function mostrarPopup(botao) {
+    const c = celulasAtuais.get(botao.dataset.celula); if (!c) return;
+    popup.innerHTML = popupCelula(c); popup.hidden = false;
+    const r = botao.getBoundingClientRect(), w = popup.offsetWidth, h = popup.offsetHeight;
+    const esquerda = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8);
+    const topo = r.bottom + 8 + h <= innerHeight - 8 ? r.bottom + 8 : Math.max(8, r.top - h - 8);
+    popup.style.left = `${esquerda}px`; popup.style.top = `${topo}px`;
+  }
+  const fecharPopup = () => { popup.hidden = true; };
+  tabela.addEventListener('pointerover', event => { const b = event.target.closest('[data-celula]'); if (b) mostrarPopup(b); });
+  tabela.addEventListener('focusin', event => { const b = event.target.closest('[data-celula]'); if (b) mostrarPopup(b); });
+  tabela.addEventListener('pointerout', event => { if (event.target.closest('[data-celula]')) fecharPopup(); });
+  tabela.addEventListener('focusout', fecharPopup);
+  addEventListener('scroll', fecharPopup, true);
+
+  tabela.addEventListener('click', event => {
     const botao = event.target.closest('[data-abrir]'); if (!botao) return;
+    fecharPopup();
     const [base, produto] = botao.dataset.abrir.split('|');
     abrirCenario(base, produto);
   });
@@ -193,7 +227,98 @@
   let atraso;
   campoBusca.oninput = () => { clearTimeout(atraso); atraso = setTimeout(render, 250); };
 
-  // A Visao do dia ocupa a tela sozinha: o simulador some enquanto ela esta' aberta.
-  abrir.onclick = () => { view.hidden = false; document.body.classList.add('visao-dia-aberta'); render(); scrollTo({top: 0, behavior: 'smooth'}); };
-  fechar.onclick = () => { view.hidden = true; document.body.classList.remove('visao-dia-aberta'); };
+  // ================= Historico =================
+  // Simulacoes salvas pela equipe ("Salvar na equipe"), por dia — juncao das antigas abas "Simulações de
+  // hoje" e "Por data" (pedido da usuaria, 2026-10-14: "a parte do historico, pra pessoa acompanhar as
+  // simulacoes feitas"). So' le o que foi gravado (versoes imutaveis), agrupado por cidade.
+  const campoDiaHist = $('hist-dia'), campoRegiaoHist = $('hist-regiao'), campoBuscaHist = $('hist-busca'),
+    statusHist = $('hist-status'), listaHist = $('hist-lista');
+  campoDiaHist.value = simulationToday();
+  let geracaoHist = 0;
+  const rotuloSalvo = {critico: 'Crítico', atencao: 'Atenção', ok: 'OK'};
+
+  async function renderHistorico() {
+    const minha = ++geracaoHist;
+    statusHist.textContent = 'Carregando…'; listaHist.innerHTML = '';
+    const dia = campoDiaHist.value || simulationToday();
+    let arvore;
+    try { arvore = await cloud.listDay(dia); }
+    catch (error) { if (minha === geracaoHist) statusHist.textContent = `Não foi possível carregar: ${error.message}`; return; }
+    if (minha !== geracaoHist) return;
+    let itens = [];
+    for (const porChave of Object.values(arvore || {})) {
+      for (const chaveNode of Object.values(porChave)) {
+        const versoes = Object.values(chaveNode.versoes || {});
+        if (versoes.length) itens.push(versoes.reduce((a, b) => (a.versao > b.versao ? a : b)));
+      }
+    }
+    itens = itens.map(it => { const r = D.records.find(x => x.base === it.base); return {...it, cidade: r ? cidadeDe(r) : (it.base || '—')}; });
+    const regiao = campoRegiaoHist.value, busca = campoBuscaHist.value.trim().toLowerCase();
+    itens = itens.filter(it => (!regiao || cloud.regionOf(it.base) === regiao)
+      && (!busca || [it.base, it.cidade, it.produto].some(v => (v || '').toLowerCase().includes(busca))));
+    const dataFmt = new Date(dia + 'T12:00:00').toLocaleDateString('pt-BR');
+    if (!itens.length) { statusHist.textContent = `Nenhuma simulação salva em ${dataFmt} com os filtros atuais.`; return; }
+    const porCidade = new Map();
+    for (const it of itens) { if (!porCidade.has(it.cidade)) porCidade.set(it.cidade, []); porCidade.get(it.cidade).push(it); }
+    const cidades = [...porCidade.entries()].map(([cidade, lista]) => ({cidade, lista: lista.sort((a, b) => (b.atualizadoEm || 0) - (a.atualizadoEm || 0))}))
+      .sort((a, b) => b.lista.length - a.lista.length || a.cidade.localeCompare(b.cidade, 'pt-BR'));
+    statusHist.textContent = `${itens.length} simulação(ões) salva(s) em ${dataFmt}, em ${cidades.length} cidade(s). Mostra a versão mais recente de cada base, produto e cenário.`;
+    listaHist.innerHTML = cidades.map(c => `<details class="card"${cidades.length <= 3 ? ' open' : ''}>
+      <summary><strong>${esc(c.cidade)}</strong> <small>${c.lista.length} simulação(ões)</small></summary>
+      <table class="hoje-tabela"><thead><tr><th>Base</th><th>Produto</th><th>Cenário</th><th>Situação ao salvar</th><th>Menor estoque (m³)</th><th>Versão</th><th>Autor / motivo</th><th>Horário</th><th></th></tr></thead>
+      <tbody>${c.lista.map(it => `<tr class="dia-${it.indicadores?.situacao || ''}">
+        <td>${esc(it.base)}</td><td>${esc(it.produto)}</td><td>${esc(it.cenario)}</td>
+        <td>${esc(rotuloSalvo[it.indicadores?.situacao] || '—')}</td>
+        <td>${it.indicadores ? fmt(it.indicadores.menorEstoque) : '—'}${it.indicadores?.diaMenorEstoque ? ` <small>em ${dataCurta(it.indicadores.diaMenorEstoque)}</small>` : ''}</td>
+        <td>v${it.versao}</td>
+        <td>${esc(it.autorNome || '—')}${it.motivo ? `<br><small>${esc(it.motivo)}</small>` : ''}</td>
+        <td>${it.atualizadoEm ? new Date(it.atualizadoEm).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) : '—'}</td>
+        <td><button type="button" data-abrir-hist="${esc(it.base)}|${esc(it.produto)}|${esc(it.cenario)}">Abrir</button></td>
+      </tr>`).join('')}</tbody></table>
+    </details>`).join('');
+  }
+  listaHist.addEventListener('click', event => {
+    const botao = event.target.closest('[data-abrir-hist]'); if (!botao) return;
+    const [base, produto, cenario] = botao.dataset.abrirHist.split('|');
+    abrirCenario(base, produto, cenario);
+  });
+  [campoDiaHist, campoRegiaoHist].forEach(el => el.onchange = renderHistorico);
+  let atrasoHist;
+  campoBuscaHist.oninput = () => { clearTimeout(atrasoHist); atrasoHist = setTimeout(renderHistorico, 250); };
+
+  // ================= Abas da pagina =================
+  // Abas no estilo do portal inbound (pedido da usuaria, 2026-10-14): Simulacao de estoques, Alertas
+  // (a Visao do dia), Cenario (editar volumes do dia + politica) e Historico. Cada filho de <main>
+  // recebe data-aba com as abas em que aparece; o CSS esconde o resto conforme body[data-aba].
+  const main = document.querySelector('main');
+  const historicoView = $('historico-view');
+  main.prepend(view, historicoView);
+  view.hidden = false; historicoView.hidden = false;
+  const filhoDeMain = el => { while (el && el.parentElement !== main) el = el.parentElement; return el; };
+  const marcar = (seletor, abas) => { const el = filhoDeMain(document.querySelector(seletor)); if (el) el.dataset.aba = abas; };
+  view.dataset.aba = 'alertas'; historicoView.dataset.aba = 'historico';
+  marcar('main > .title', 'simulacao cenario');
+  marcar('section.filters', 'simulacao cenario');
+  marcar('section.editor-panel', 'cenario');
+  // O editor do dia estava escondido (cenarios.js) desde que a edicao passou pra tabela; volta a
+  // aparecer, mas so' na aba Cenario.
+  document.querySelector('section.editor-panel').hidden = false;
+  marcar('section.assumptions', 'cenario');
+  for (const filho of main.children) if (!filho.dataset.aba) filho.dataset.aba = 'simulacao';
+
+  const botoesAba = [...document.querySelectorAll('#abas-bar [data-aba-alvo]')];
+  function trocarAba(nome) {
+    document.body.dataset.aba = nome;
+    botoesAba.forEach(b => b.setAttribute('aria-selected', String(b.dataset.abaAlvo === nome)));
+    fecharPopup();
+    try { localStorage.setItem('simulador.aba', nome); } catch { /* sem armazenamento: so' nao lembra a aba */ }
+    if (nome === 'alertas') render();
+    else if (nome === 'historico') renderHistorico();
+  }
+  botoesAba.forEach(b => b.onclick = () => { trocarAba(b.dataset.abaAlvo); scrollTo({top: 0}); });
+  $('abas-bar').hidden = false;
+  abrir.hidden = true; fechar.hidden = true;
+  let abaInicial = 'simulacao';
+  try { abaInicial = localStorage.getItem('simulador.aba') || 'simulacao'; } catch { /* idem */ }
+  trocarAba(botoesAba.some(b => b.dataset.abaAlvo === abaInicial) ? abaInicial : 'simulacao');
 })();
