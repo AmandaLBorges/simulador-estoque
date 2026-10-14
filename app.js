@@ -28,7 +28,9 @@ function simulationToday(){return new Intl.DateTimeFormat('en-CA',{timeZone:'Ame
 // publicar_transito_ao_vivo.py ja manda so' no detalhe (viagens[].grupo==='programado' no codigo).
 // Nao entra na conta, a nao ser na origem de entrada "Programado + Não programado".
 function fobNaoProgramado(r,iso){const vs=(D.transitoAoVivo?.[r.bi?.emp_dep]?.[r.bi?.material]?.[iso]?.viagens||[]).filter(v=>v.modal==='fob'&&v.grupo==='programado');return vs.length?vs.reduce((s,v)=>s+(v.volume||0),0):null;}
-function fresh(r,cenarioForcado){
+// entradaForcada: a Visao do dia sempre usa as fontes automaticas, qualquer que seja a origem de
+// entrada escolhida na tela do simulador.
+function fresh(r,cenarioForcado,entradaForcada){
  const scenario=cenarioForcado||$('scenario')?.value||'LE',today=simulationToday();
  // Origem da entrada (pedido da usuaria, 2026-10-01): 'auto' = fontes de sempre (FOB/CIF do portal +
  // Bombeio da cadencia DAP); 'cadencia' = substitui FOB+CIF+Bombeio inteiros pelos valores PLANEJADOS
@@ -37,7 +39,7 @@ function fresh(r,cenarioForcado){
  // $('entrada').value quando nao vem cenarioForcado — e o botao restaurar chama fresh(record) puro,
  // que relê o select; o select em si so' muda quando o usuario mexe, entao o reset preserva a escolha
  // atual do select — por isso o botao "Restaurar" tambem reseta o select pra 'auto' (ver mais abaixo).
- const entrada=$('entrada')?.value||'auto';
+ const entrada=entradaForcada||$('entrada')?.value||'auto';
  const startIndex=Math.max(0,Math.round((new Date(today+'T12:00:00')-new Date(D.date+'T12:00:00'))/86400000));
  const switchIndex=Math.max(startIndex,Math.round((new Date(D.bi.inbound.switchDate+'T12:00:00')-new Date(D.date+'T12:00:00'))/86400000));
  const movements=Object.fromEntries(E.rows.map(([k])=>[k,Array(30).fill(0)]));
