@@ -78,7 +78,7 @@ function fresh(r,cenarioForcado,entradaForcada){
   else if(scenario==='Real'){if(day(i)<=D.bi.extractedAt.slice(0,10))movements.sale[i]=semanaDia?.real??0;}
   else if(['Disp MIS','Inbound + MIS'].includes(scenario))movements.sale[i]=loaded.scenarios?.[scenario]?.availability??0;
  }
- return {version:1,id:r.id,date:D.date,sourceRevision:D.revision,name:'Minha simulação',opening:r.opening,lastro:r.bi?.days[day(0)]?.scenarios?.[scenario]?.lastro??r.policy?.lastro??null,min:r.policy?.min??null,mid:r.policy?.mid??null,max:r.policy?.max??null,capacity:r.policy?.capacity??null,clamp:false,scenario,switchIndex,movements};
+ return {version:1,id:r.id,date:D.date,sourceRevision:D.revision,name:'Minha simulação',opening:r.opening,lastro:r.bi?.days[day(0)]?.scenarios?.[scenario]?.lastro??r.policy?.lastro??null,min:r.policy?.min??null,mid:r.policy?.mid??null,max:r.policy?.max??null,capacity:r.capacidadeFisica??r.policy?.capacity??null,clamp:false,scenario,switchIndex,movements};
 }
 function key(){return 'nexta-stock-auto-v2:'+D.date+':'+record.id+':'+($('scenario')?.value||'LE')+':'+($('entrada')?.value||'auto');}
 function sourceNote(k,i){const loaded=record.bi?.days[day(i)],mode=state.scenario;if(k==='planned')return 'Cadência sugerida pelo simulador (cargas de '+CARGA_SUGESTAO+' m³) ou digitada. Não altera a cadência do MIS.';if(['received','planned','purchase','loanIn','loanOut'].includes(k))return 'Ajuste adicional manual; não repetir um volume já importado.';if(['fob','cif'].includes(k)){const mis=mode==='Inbound + MIS'&&i>=state.switchIndex;return `${mis?'Cadências MIS ('+k.toUpperCase()+')':'CSV do portal, com filtro de status e data de descarga'} · ${fmt((mis?loaded?.inboundMis[k]:loaded?.[k])??0)} m³ · ${day(i)}`;}
@@ -169,7 +169,9 @@ function diasAtrasoAbertura(){
  if(!datas.length)return 0;
  return Math.max(...datas.map(d=>Math.round((new Date(D.date+'T12:00:00')-new Date(d+'T12:00:00'))/86400000)));
 }
-function premises(){$('name').value=state.name;$('clamp').checked=state.clamp;$('premises').innerHTML=parameters.map(([k,l])=>`<label>${l}<input type="number" readonly data-param="${k}" aria-label="${l}" value="${state[k]===null?'':Math.round(state[k])}" placeholder="Ausente na fonte" title="Valor fixo, carregado da planilha de política."><small>${k==='opening'?(aberturaAtrasada()?`⚠ Abertura de ${new Date(record.aberturaEm+'T12:00:00').toLocaleDateString('pt-BR')} (não é de hoje)`:'Abertura importada'):`Política: ${fmt(baseline[k])} m³`}</small></label>`).join('');}
+function premises(){$('name').value=state.name;$('clamp').checked=state.clamp;$('premises').innerHTML=parameters.map(([k,l])=>`<label>${l}<input type="number" readonly data-param="${k}" aria-label="${l}" value="${state[k]===null?'':Math.round(state[k])}" placeholder="Ausente na fonte" title="Valor fixo, carregado da planilha de política."><small>${k==='opening'?(aberturaAtrasada()?`⚠ Abertura de ${new Date(record.aberturaEm+'T12:00:00').toLocaleDateString('pt-BR')} (não é de hoje)`:'Abertura importada'):(k==='capacity'?(semCapacidade()?'Sem capacidade estabelecida':'Planilha de tancagem'):`Política: ${fmt(baseline[k])} m³`)}</small></label>`).join('');}
+// Capacidade 0 = base/produto fora da planilha de tancagem (venda no bico): "Sem capacidade estabelecida".
+function semCapacidade(){return record?.capacidadeFisica===0;}
 function history(i){return D.history?.[day(i)]?.[record.base+'|'+record.product];}
 // Dias passados da grade: o que realmente aconteceu (mesmas fontes do BI): abertura da planilha do dia,
 // vendas realizadas (VA05 fornecido), FOB/CIF realizados (trânsito publicado) e fechamento = abertura do dia seguinte.
@@ -440,7 +442,7 @@ document.addEventListener('pointerover',e=>{const el=e.target.closest('[data-cha
 document.addEventListener('focusin',e=>{const el=e.target.closest('[data-chart-day]');if(el)mostrarPopupGrafico(el);});
 document.addEventListener('pointerdown',e=>{const el=e.target.closest('[data-chart-day]');if(el)mostrarPopupGrafico(el);else if(!$('chart-popover').contains(e.target))fecharPopupGrafico();});
 document.addEventListener('pointerout',e=>{if(e.target.closest('[data-chart-day]')&&document.activeElement!==e.target)fecharPopupGrafico();});
-function alerts(result){const items=['O histórico de vendas realizadas não é carregado nesta versão; as vendas futuras usam o LE vigente e, hoje, o maior entre o LE e os pedidos do SAP.',`Valores futuros carregados das fontes (${D.bi.extractedAt.replace('T',' ')}). Portal carregado até ${D.bi.coverage.portal_max.slice(0,10)}; cadências MIS até ${D.bi.coverage.cadencia_max.slice(0,10)}.`];if(parameters.slice(1).some(([k])=>state[k]===null))items.push('A planilha de política tem campos vazios neste recorte; os alertas correspondentes estão indisponíveis.');result.forEach((r,i)=>{const low=Math.min(r.opening,r.close),high=Math.max(r.opening,r.close),a=[];if(low<0)a.push(`déficit físico de ${fmt(-low)} m³`);if(state.lastro!==null&&low<state.lastro)a.push('estoque abaixo do lastro');if(state.min!==null&&low<=state.min)a.push(`no mínimo ou abaixo em ${fmt(state.min-low)} m³`);if(state.capacity!==null&&high>state.capacity)a.push(`capacidade excedida em ${fmt(high-state.capacity)} m³`);else if(state.max!==null&&high>state.max)a.push('acima do estoque máximo');if(a.length)items.push(label(i)+': '+a.join(' • '));});$('alerts').innerHTML=items.map(s=>`<div class="alert">${esc(s)}</div>`).join('');}
+function alerts(result){const items=['O histórico de vendas realizadas não é carregado nesta versão; as vendas futuras usam o LE vigente e, hoje, o maior entre o LE e os pedidos do SAP.',`Valores futuros carregados das fontes (${D.bi.extractedAt.replace('T',' ')}). Portal carregado até ${D.bi.coverage.portal_max.slice(0,10)}; cadências MIS até ${D.bi.coverage.cadencia_max.slice(0,10)}.`];if(parameters.slice(1).some(([k])=>state[k]===null))items.push('A planilha de política tem campos vazios neste recorte; os alertas correspondentes estão indisponíveis.');result.forEach((r,i)=>{const low=Math.min(r.opening,r.close),high=Math.max(r.opening,r.close),a=[];if(low<0)a.push(`déficit físico de ${fmt(-low)} m³`);if(state.lastro!==null&&low<state.lastro)a.push('estoque abaixo do lastro');if(state.min!==null&&low<=state.min)a.push(`no mínimo ou abaixo em ${fmt(state.min-low)} m³`);if(state.capacity>0&&high>state.capacity)a.push(`capacidade excedida em ${fmt(high-state.capacity)} m³`);else if(state.max!==null&&high>state.max)a.push('acima do estoque máximo');if(a.length)items.push(label(i)+': '+a.join(' • '));});$('alerts').innerHTML=items.map(s=>`<div class="alert">${esc(s)}</div>`).join('');}
 // Selecionar pelo <select> nativo sempre colapsa pra 1 so' (troca o Set inteiro) — e' a ferramenta de
 // "escolher so' esse"; os chips (abaixo) sao quem permite ligar varios ao mesmo tempo sem perder os
 // outros ja ativos.
@@ -467,11 +469,13 @@ $('reset-tabela').onclick=restaurarDaFonte;
 // tanque. Capacidade = tanque informado no MIS; sem ele, a capacidade da politica.
 // Recalcula do zero a cada clique (ignora o que ja' estava na linha) e considera FOB/CIF/Bombeio do jeito que
 // estao na tela, inclusive editados. Antecedencia, cargas por dia e dias sem recebimento ainda nao entram.
-function capacidadeDoTanque(){return record?.capacidadeFisica||state?.capacity||null;}
+// Capacidade = planilha de tancagem (0 = fora da planilha, venda no bico); a politica so' entra se o
+// snapshot for antigo e nao trouxer capacidadeFisica.
+function capacidadeDoTanque(){return record?.capacidadeFisica??state?.capacity??null;}
 function sugerirCadencia(){
  if(!record){message('Escolha cidade, depósito e produto antes de sugerir a cadência.');return;}
  const capacidade=capacidadeDoTanque();
- if(!capacidade){message('Este recorte não tem a capacidade do tanque informada; não é possível sugerir a cadência.');return;}
+ if(!capacidade){message(semCapacidade()?'Sem capacidade estabelecida para este recorte; não é possível sugerir a cadência.':'Este recorte não tem a capacidade do tanque informada; não é possível sugerir a cadência.');return;}
  const hojeI=Math.max(0,Math.round((new Date(simulationToday()+'T12:00:00')-new Date(D.date+'T12:00:00'))/86400000));
  const semSugestao=structuredClone(state);semSugestao.movements.planned=Array(30).fill(0);
  const plano=E.suggest(semSugestao,n,{carga:CARGA_SUGESTAO,gatilho:capacidade*GATILHO_SUGESTAO,teto:capacidade,inclusive:false,inicio:hojeI+1});

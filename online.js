@@ -1,6 +1,7 @@
 import { firebaseAuth as auth, firebaseDatabase as db } from './firebase.js';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, setPersistence,
-  browserSessionPersistence, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
+  browserSessionPersistence, sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential,
+  updatePassword } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import { ref, get, set, runTransaction, serverTimestamp, onValue } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 
 const el = id => document.getElementById(id);
@@ -72,7 +73,32 @@ el('login-reset').onclick = async () => {
   catch (error) { status(errorText(error)); }
 };
 el('logout').onclick = async () => { await signOut(auth); location.reload(); };
-el('login-switch').onclick = el('logout').onclick;
+// Trocar a propria senha (pedido da usuaria, 2026-10-14, igual ao portal inbound): reautentica com a
+// senha atual e grava a nova no Firebase Auth. Nada passa por servidor nosso.
+const dialogoSenha = el('senha-dialogo');
+function limparSenha() { for (const id of ['senha-atual', 'senha-nova', 'senha-confirma']) el(id).value = ''; el('senha-info').textContent = ''; }
+el('trocar-senha').onclick = () => { limparSenha(); dialogoSenha.showModal(); el('senha-atual').focus(); };
+el('senha-cancelar').onclick = () => dialogoSenha.close();
+el('senha-form').onsubmit = async event => {
+  event.preventDefault();
+  const info = el('senha-info'), atual = el('senha-atual').value, nova = el('senha-nova').value;
+  if (!atual) { info.textContent = 'Informe a senha atual.'; return; }
+  if (nova.length < 6) { info.textContent = 'A nova senha deve ter pelo menos 6 caracteres.'; return; }
+  if (nova !== el('senha-confirma').value) { info.textContent = 'A confirmação não corresponde à nova senha.'; return; }
+  if (nova === atual) { info.textContent = 'A nova senha deve ser diferente da atual.'; return; }
+  const user = auth.currentUser; if (!user) { info.textContent = 'Sessão encerrada. Entre novamente.'; return; }
+  el('senha-salvar').disabled = true; info.textContent = 'Atualizando senha…';
+  try {
+    await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email, atual));
+    await updatePassword(user, nova);
+    info.textContent = 'Senha atualizada com sucesso.';
+    setTimeout(() => dialogoSenha.close(), 1200);
+  } catch (error) {
+    info.textContent = ({'auth/wrong-password': 'Senha atual incorreta.', 'auth/invalid-credential': 'Senha atual incorreta.',
+      'auth/weak-password': 'A nova senha é muito fraca.', 'auth/too-many-requests': 'Muitas tentativas. Aguarde antes de tentar novamente.',
+      'auth/requires-recent-login': 'Sessão expirada. Saia e entre novamente antes de trocar a senha.'})[error.code] || errorText(error);
+  } finally { el('senha-salvar').disabled = false; }
+};el('login-switch').onclick = el('logout').onclick;
 await setPersistence(auth, browserSessionPersistence);
 el('login-submit').disabled = el('login-reset').disabled = false;
 status('Entre com o e-mail liberado para o simulador.');

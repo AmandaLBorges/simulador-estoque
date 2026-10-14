@@ -247,3 +247,22 @@ button.ranking-linha.selecionada{background:#EEFE7A1a;box-shadow:inset 0 0 0 1px
 .ranking-produtos-tabela thead th{color:var(--dim);font-weight:600;font-size:11px}
 .ranking-produtos-tabela th:first-child{text-align:left;color:#EEFE7A;font-weight:700}
 .ranking-produtos-tabela thead th:first-child{color:var(--dim)}
+.ranking-secao{margin-bottom:16px}
+.sem-capacidade{color:var(--muted);font-weight:400;font-style:italic;font-size:11px}
+.ranking-produtos-tabela tfoot th,.ranking-produtos-tabela tfoot td{font-weight:700;color:#EEFE7A;border-top:2px solid var(--border);border-bottom:0;background:#8dc8301a}
+.abas-bar button{display:inline-flex;align-items:center;gap:8px}
+.aba-icone{width:18px;height:18px;flex:none;opacity:.75;transition:transform .15s,opacity .15s}
+.abas-bar button:hover .aba-icone{opacity:1;transform:translateY(-1px)}
+.abas-bar button[aria-selected="true"] .aba-icone{opacity:1;filter:drop-shadow(0 0 6px #EEFE7A66)}
+.abas-bar button[data-aba-alvo="alertas"] .aba-icone{color:#FF8A7F}
+.abas-bar button[data-aba-alvo="alertas"][aria-selected="true"] .aba-icone{color:#FF6B5F;filter:drop-shadow(0 0 6px #FF6B5F88)}
+/* Trocar senha */
+#trocar-senha{display:inline-flex;align-items:center;gap:6px}
+#trocar-senha .aba-icone{width:16px;height:16px;opacity:.85}
+.senha-dialogo{width:min(420px,calc(100vw - 32px));padding:24px;background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:14px;box-shadow:0 12px 40px #000a}
+.senha-dialogo::backdrop{background:#0009}
+.senha-dialogo h2{margin:0 0 6px}
+.senha-dialogo form{display:flex;flex-direction:column;gap:12px}
+.senha-dialogo p{margin:0}
+#senha-info{min-height:18px;font-size:13px;color:#f3c787}
+.senha-acoes{display:flex;justify-content:flex-end;gap:8px}

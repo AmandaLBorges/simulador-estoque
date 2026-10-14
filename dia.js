@@ -151,22 +151,46 @@
       if (!doProduto.length) return null;
       const soma = f => doProduto.reduce((s, it) => s + f(it), 0);
       const abertura = soma(it => Math.max(it.aberturaHoje, 0)), vmd = soma(it => Math.max(it.vmdHoje, 0));
-      const tanque = soma(it => it.registro.capacidadeFisica || it.registro.policy?.capacity || 0);
-      return {rotulo, abertura, vmd, tanque, dias: vmd > 0 ? abertura / vmd : null};
+      const capacidade = it => it.registro.capacidadeFisica ?? it.registro.policy?.capacity ?? 0;
+      const tanque = soma(capacidade);
+      // Autonomia do tanque (pedido da usuaria, 2026-10-14): tanque / VMD = quantos dias de venda o tanque
+      // cheio aguenta. So' a VMD de quem tem capacidade, pra venda no bico nao diminuir a autonomia.
+      const vmdComTanque = soma(it => (capacidade(it) > 0 ? Math.max(it.vmdHoje, 0) : 0));
+      return {rotulo, abertura, vmd, tanque, vmdComTanque, dias: vmd > 0 ? abertura / vmd : null, autonomia: tanque > 0 && vmdComTanque > 0 ? tanque / vmdComTanque : null};
     }).filter(Boolean);
+    // Linha de total (pedido da usuaria, 2026-10-14: "faca um somatorio"): volumes somados; dias e
+    // autonomia recalculados sobre os totais (nao e' soma nem media dos dias de cada produto).
+    const total = ['abertura', 'vmd', 'tanque', 'vmdComTanque'].reduce((t, k) => ({...t, [k]: linhas.reduce((s, l) => s + l[k], 0)}), {});
+    total.dias = total.vmd > 0 ? total.abertura / total.vmd : null;
+    total.autonomia = total.tanque > 0 && total.vmdComTanque > 0 ? total.tanque / total.vmdComTanque : null;
     alvo.innerHTML = `<div class="ranking-produtos-topo"><strong>${esc(cidadeRanking || 'Todas as cidades')}</strong>${cidadeRanking ? ' <button type="button" id="ranking-limpar">ver todas</button>' : '<small>clique numa cidade do ranking para filtrar</small>'}</div>
-      <table class="ranking-produtos-tabela"><thead><tr><th>Produto</th><th>Abertura estoque</th><th>VMD planejada</th><th>Dias de estoque</th><th>Tamanho do tanque</th></tr></thead>
-      <tbody>${linhas.map(l => `<tr><th>${esc(l.rotulo)}</th><td>${fmt(l.abertura)}</td><td>${fmt(l.vmd)}</td><td>${l.dias == null ? '—' : dias1(l.dias)}</td><td>${l.tanque ? fmt(l.tanque) : '—'}</td></tr>`).join('')}</tbody></table>
-      <p class="muted ranking-nota">Volumes em m³ (VMD em m³ por dia). Tanque: capacidade da planilha de tancagem; sem ela, a do MIS.</p>`;
+      <table class="ranking-produtos-tabela"><thead><tr><th>Produto</th><th>Abertura estoque</th><th>VMD planejada</th><th>Dias de estoque</th><th>Tamanho do tanque</th><th title="Tamanho do tanque ÷ VMD planejada: quantos dias de venda o tanque cheio aguenta">Autonomia do tanque (dias)</th></tr></thead>
+      <tbody>${linhas.map(l => `<tr><th>${esc(l.rotulo)}</th><td>${fmt(l.abertura)}</td><td>${fmt(l.vmd)}</td><td>${l.dias == null ? '—' : dias1(l.dias)}</td><td>${l.tanque ? fmt(l.tanque) : '<span class="sem-capacidade">Sem capacidade estabelecida</span>'}</td><td>${l.autonomia == null ? '—' : dias1(l.autonomia)}</td></tr>`).join('')}</tbody>
+      <tfoot><tr><th>Total</th><td>${fmt(total.abertura)}</td><td>${fmt(total.vmd)}</td><td>${total.dias == null ? '—' : dias1(total.dias)}</td><td>${total.tanque ? fmt(total.tanque) : '—'}</td><td>${total.autonomia == null ? '—' : dias1(total.autonomia)}</td></tr></tfoot></table>
+      <p class="muted ranking-nota">Volumes em m³ (VMD em m³ por dia). Tanque: capacidade da planilha de tancagem; o que não está nela fica sem capacidade estabelecida. Autonomia do tanque = tamanho do tanque ÷ VMD dos depósitos com capacidade: quantos dias de venda o tanque cheio aguenta.</p>`;
   }
   $('ranking-dias-bloco').addEventListener('click', event => {
     const linha = event.target.closest('[data-ranking-cidade]');
-    if (linha) { cidadeRanking = cidadeRanking === linha.dataset.rankingCidade ? null : linha.dataset.rankingCidade; render(); return; }
-    if (event.target.closest('#ranking-limpar')) { cidadeRanking = null; render(); }
+    if (linha) { cidadeRanking = cidadeRanking === linha.dataset.rankingCidade ? null : linha.dataset.rankingCidade; renderCenario(); return; }
+    if (event.target.closest('#ranking-limpar')) { cidadeRanking = null; renderCenario(); }
   });
 
+  function colunasDe(itens) {
+    const presentes = new Set(itens.map(it => it.produto));
+    return COLUNAS.filter(([p]) => presentes.has(p))
+      .concat([...presentes].filter(p => !COLUNAS.some(([c]) => c === p)).sort().map(p => [p, p]));
+  }
+  // Ranking + quadro por produto ficam na aba Cenario (pedido da usuaria, 2026-10-14); a aba Alertas
+  // fica so' com a matriz. Aqui sem filtro de regiao/cidade: visao geral de todas as cidades do login.
+  function renderCenario() {
+    ranking.innerHTML = '';
+    const itens = calcular();
+    renderRanking(itens, colunasDe(itens), matriz(itens));
+  }
+  campoProdutoRanking.onchange = renderCenario;
+
   function render() {
-    statusEl.textContent = 'Calculando…'; barra.innerHTML = ''; tabela.innerHTML = ''; ranking.innerHTML = ''; fecharPopup();
+    statusEl.textContent = 'Calculando…'; barra.innerHTML = ''; tabela.innerHTML = ''; fecharPopup();
     let itens = calcular();
     const regiao = campoRegiao.value, busca = campoBusca.value.trim().toLowerCase();
     itens = itens.filter(it => (!regiao || cloud.regionOf(it.registro.base) === regiao) && (!busca || it.cidade.toLowerCase().includes(busca)));
@@ -174,10 +198,7 @@
     const filtroSituacao = campoSituacao.value;
     const passaSituacao = c => !filtroSituacao || (filtroSituacao === 'critico' ? c.pior.situacao.startsWith('critico') : c.pior.situacao === filtroSituacao);
     const cidades = [...new Set(itens.map(it => it.cidade))].filter(cid => [...celulas.entries()].some(([k, c]) => k.startsWith(cid + '|') && passaSituacao(c)));
-    const produtosPresentes = new Set(itens.map(it => it.produto));
-    const colunas = COLUNAS.filter(([p]) => produtosPresentes.has(p))
-      .concat([...produtosPresentes].filter(p => !COLUNAS.some(([c]) => c === p)).sort().map(p => [p, p]));
-    renderRanking(itens, colunas, celulas);
+    const colunas = colunasDe(itens);
     if (!cidades.length) { statusEl.textContent = 'Nenhuma cidade encontrada com os filtros atuais.'; return; }
 
     const piorDaCidade = cid => Math.min(...colunas.map(([p]) => celulas.get(`${cid}|${p}`)).filter(Boolean).map(c => SITUACOES[c.pior.situacao].peso));
@@ -223,7 +244,7 @@
     const [base, produto] = botao.dataset.abrir.split('|');
     abrirCenario(base, produto);
   });
-  [campoRegiao, campoSituacao, campoProdutoRanking].forEach(el => el.onchange = render);
+  [campoRegiao, campoSituacao].forEach(el => el.onchange = render);
   let atraso;
   campoBusca.oninput = () => { clearTimeout(atraso); atraso = setTimeout(render, 250); };
 
@@ -291,13 +312,14 @@
   // (a Visao do dia), Cenario (editar volumes do dia + politica) e Historico. Cada filho de <main>
   // recebe data-aba com as abas em que aparece; o CSS esconde o resto conforme body[data-aba].
   const main = document.querySelector('main');
-  const historicoView = $('historico-view');
-  main.prepend(view, historicoView);
-  view.hidden = false; historicoView.hidden = false;
+  const historicoView = $('historico-view'), rankingView = $('ranking-view');
+  main.prepend(view, historicoView, rankingView);
+  view.hidden = false; historicoView.hidden = false; rankingView.hidden = false;
+  rankingView.dataset.aba = 'cenario';
   const filhoDeMain = el => { while (el && el.parentElement !== main) el = el.parentElement; return el; };
   const marcar = (seletor, abas) => { const el = filhoDeMain(document.querySelector(seletor)); if (el) el.dataset.aba = abas; };
   view.dataset.aba = 'alertas'; historicoView.dataset.aba = 'historico';
-  marcar('main > .title', 'simulacao cenario');
+  marcar('main > .title', 'simulacao');
   marcar('section.filters', 'simulacao cenario');
   // Editor do dia continua escondido (cenarios.js): a usuaria preferiu a aba Cenario so' com a politica.
   marcar('section.editor-panel', 'cenario');
@@ -311,6 +333,7 @@
     fecharPopup();
     try { localStorage.setItem('simulador.aba', nome); } catch { /* sem armazenamento: so' nao lembra a aba */ }
     if (nome === 'alertas') render();
+    else if (nome === 'cenario') renderCenario();
     else if (nome === 'historico') renderHistorico();
   }
   botoesAba.forEach(b => b.onclick = () => { trocarAba(b.dataset.abaAlvo); scrollTo({top: 0}); });
