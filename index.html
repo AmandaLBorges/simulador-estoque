@@ -35,7 +35,18 @@
 <div class="senha-acoes"><button id="senha-cancelar" type="button">Cancelar</button><button id="senha-salvar" type="submit" class="primary">Salvar</button></div>
 </form>
 </dialog><section id="ranking-view" class="ranking-secao" hidden>
-<div class="ranking-dias" id="ranking-dias-bloco"><div class="ranking-topo"><h3>Ranking de dias de estoque</h3><label>Produto<select id="ranking-produto"></select></label></div><p class="muted ranking-nota">Abertura de hoje ÷ VMD reprojetada de hoje, somando os depósitos da cidade. Escolhendo um produto, a cor da barra é a situação da cidade na aba Alertas.</p><div class="ranking-corpo"><div id="ranking-lista" class="ranking-lista"></div><div id="ranking-produtos" class="ranking-produtos"></div></div></div>
+<div class="ranking-dias" id="ranking-dias-bloco"><div class="ranking-topo"><h3>Ranking de dias de estoque</h3><label>Produto<select id="ranking-produto"></select></label></div><p class="muted ranking-nota">Dias de estoque = abertura de hoje ÷ VMD planejada, somando os depósitos da cidade. Escolhendo um produto, a cor da barra é a situação da cidade na aba Alertas.</p><div class="ranking-corpo"><div id="ranking-lista" class="ranking-lista"></div><div id="ranking-produtos" class="ranking-produtos"></div></div></div>
+<div class="regras-cenario">
+<h3>Como cada número é calculado</h3>
+<dl>
+<div><dt>Abertura estoque</dt><dd>Estoque de abertura de hoje (planilha de abertura; sem ela, MIS), somando os depósitos e empresas da cidade.</dd></div>
+<div><dt>VMD planejada</dt><dd>Média por dia útil do que falta vender no mês: soma da VMD reprojetada de hoje até o fim do mês ÷ soma dos dias úteis equivalentes do mesmo período (dia útil = cerca de 1, sábado = cerca de 0,5, domingo e feriado = 0). Mesma conta do BI.</dd></div>
+<div><dt>Dias de estoque</dt><dd>Abertura estoque ÷ VMD planejada: quantos dias o estoque de hoje aguenta sem nenhuma entrada. Fica vazio quando a VMD planejada é menor que 1 m³.</dd></div>
+<div><dt>Tamanho do tanque</dt><dd>Capacidade da planilha de tancagem. Base e produto fora dela (venda no bico) aparecem como “Sem capacidade estabelecida”.</dd></div>
+<div><dt>Autonomia do tanque</dt><dd>Tamanho do tanque ÷ VMD planejada dos depósitos com capacidade: quantos dias de venda o tanque cheio aguenta.</dd></div>
+<div><dt>Total</dt><dd>Abertura, VMD e tanque são somados; dias de estoque e autonomia são recalculados sobre os totais (não são somados).</dd></div>
+</dl>
+</div>
 </section>
 <section id="historico-view" class="panel" hidden>
 <div class="section-title"><div><h2>Histórico de simulações</h2><p>Simulações salvas pela equipe com “Salvar na equipe”, por dia. Cada versão é definitiva; uma nova só se soma ao histórico.</p></div></div>
@@ -56,7 +67,13 @@
 </div>
 <p id="semana-status" class="muted" role="status"></p>
 <div id="semana-barra" class="semana-barra"></div>
-<div class="matriz-legenda"><span class="critico-hoje">Crítico hoje</span><span class="critico">Crítico de amanhã a D+5</span><span class="atencao">Atenção</span><span class="ok">OK</span></div>
+<div class="matriz-legenda">
+<div class="critico-hoje"><b>Crítico hoje</b><span>O fechamento de <strong>hoje</strong> fica negativo ou abaixo do lastro.</span></div>
+<div class="critico"><b>Crítico de amanhã a D+5</b><span>Hoje está ok, mas em algum dia até D+5 o fechamento fica negativo ou abaixo do lastro. A célula mostra a data do primeiro dia.</span></div>
+<div class="atencao"><b>Atenção</b><span>Nenhum dia crítico, mas em algum dia até D+5 o fechamento fica igual ou abaixo do estoque mínimo.</span></div>
+<div class="ok"><b>OK</b><span>Todos os dias até D+5 com fechamento acima do estoque mínimo.</span></div>
+</div>
+<p class="matriz-legenda-nota">Fechamento = abertura + entradas previstas − vendas pela VMD reprojetada. Cidade com mais de um depósito: vale o pior. “—” = a cidade não tem esse produto. Passe o mouse na célula para ver cada depósito; clique para abrir no simulador.</p>
 <div class="matriz-scroll"><table id="matriz-risco" class="matriz-risco"></table></div>
 <aside id="matriz-popover" role="tooltip" hidden></aside>
 </section>

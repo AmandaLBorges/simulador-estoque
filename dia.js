@@ -58,7 +58,8 @@
     const situacao = primeiroCritico !== null ? (primeiroCritico === inicio ? 'critico-hoje' : 'critico') : atencao ? 'atencao' : 'ok';
     // Pro ranking de dias de estoque: abertura de hoje (ja' projetada, se a planilha for de dia anterior)
     // e a VMD reprojetada de hoje.
-    return {situacao, aberturaHoje: resultado[inicio].opening, vmdHoje: content.movements.sale[inicio] || 0, menor, diaMenor: iso(diaMenor), primeiroCritico: primeiroCritico === null ? null : iso(primeiroCritico),
+    return {situacao, aberturaHoje: resultado[inicio].opening, vmdHoje: content.movements.sale[inicio] || 0,
+      vmdPlanejada: r.bi?.vmdPlanejada ?? null, menor, diaMenor: iso(diaMenor), primeiroCritico: primeiroCritico === null ? null : iso(primeiroCritico),
       ruptura: ruptura === null ? null : iso(ruptura), inicio: iso(inicio), fim: iso(fim)};
   }
 
@@ -119,7 +120,7 @@
     for (const it of itens) {
       if (escolhido && it.produto !== escolhido) continue;
       const c = porCidade.get(it.cidade) || {abertura: 0, vmd: 0};
-      c.abertura += Math.max(it.aberturaHoje, 0); c.vmd += Math.max(it.vmdHoje, 0);
+      c.abertura += Math.max(it.aberturaHoje, 0); c.vmd += vmdRef(it);
       porCidade.set(it.cidade, c);
     }
     const piorSituacao = cid => {
@@ -127,18 +128,21 @@
       return pesos.sort((a, b) => SITUACOES[a].peso - SITUACOES[b].peso)[0] || 'ok';
     };
     // Com todos os produtos juntos, a barra fica na cor neutra (um produto ruim pintaria a cidade inteira).
-    const linhas = [...porCidade.entries()].filter(([, c]) => c.vmd > 0).map(([cidade, c]) => ({cidade, dias: c.abertura / c.vmd, ...c, situacao: escolhido ? piorSituacao(cidade) : 'neutra'}))
+    const linhas = [...porCidade.entries()].filter(([, c]) => c.vmd >= 1).map(([cidade, c]) => ({cidade, dias: c.abertura / c.vmd, ...c, situacao: escolhido ? piorSituacao(cidade) : 'neutra'}))
       .sort((a, b) => b.dias - a.dias);
     const maximo = Math.max(...linhas.map(l => l.dias), 1);
     if (cidadeRanking && !linhas.some(l => l.cidade === cidadeRanking)) cidadeRanking = null;
     ranking.innerHTML = !linhas.length ? '<p class="muted">Sem VMD para calcular os dias de estoque.</p>'
-      : linhas.map(l => `<button type="button" class="ranking-linha${l.cidade === cidadeRanking ? ' selecionada' : ''}" data-ranking-cidade="${esc(l.cidade)}" title="${esc(`${l.cidade}: abertura ${fmt(l.abertura)} m³ ÷ VMD ${fmt(l.vmd)} m³/dia = ${dias1(l.dias)} dias. Clique para ver por produto.`)}">
+      : linhas.map(l => `<button type="button" class="ranking-linha${l.cidade === cidadeRanking ? ' selecionada' : ''}" data-ranking-cidade="${esc(l.cidade)}" title="${esc(`${l.cidade}: abertura ${fmt(l.abertura)} m³ ÷ VMD planejada ${fmt(l.vmd)} m³/dia = ${dias1(l.dias)} dias. Clique para ver por produto.`)}">
         <span class="ranking-cidade">${esc(l.cidade)}</span>
         <span class="ranking-trilho"><span class="ranking-barra ${l.situacao}" style="width:${Math.max(1, l.dias / maximo * 100)}%"></span></span>
         <span class="ranking-valor">${dias1(l.dias)}</span></button>`).join('');
     renderPorProduto(itens, colunas);
   }
   const dias1 = v => v.toFixed(1).replace('.', ',');
+  // VMD do Cenario = 'VMD Planejada' do BI (media por dia util de hoje ate' o fim do mes, calculada na carga);
+  // carga antiga sem esse campo cai na VMD de hoje.
+  const vmdRef = it => it.vmdPlanejada ?? Math.max(it.vmdHoje, 0);
 
   // Quadro por produto ao lado do ranking (pedido da usuaria, 2026-10-14, igual ao BI: Abertura Estoque,
   // VMD Planejada, Dias Estoque), mais o tamanho do tanque. Todas as cidades, ou a cidade clicada no ranking.
@@ -150,24 +154,23 @@
       const doProduto = escolhidos.filter(it => it.produto === produto);
       if (!doProduto.length) return null;
       const soma = f => doProduto.reduce((s, it) => s + f(it), 0);
-      const abertura = soma(it => Math.max(it.aberturaHoje, 0)), vmd = soma(it => Math.max(it.vmdHoje, 0));
+      const abertura = soma(it => Math.max(it.aberturaHoje, 0)), vmd = soma(vmdRef);
       const capacidade = it => it.registro.capacidadeFisica ?? it.registro.policy?.capacity ?? 0;
       const tanque = soma(capacidade);
       // Autonomia do tanque (pedido da usuaria, 2026-10-14): tanque / VMD = quantos dias de venda o tanque
       // cheio aguenta. So' a VMD de quem tem capacidade, pra venda no bico nao diminuir a autonomia.
-      const vmdComTanque = soma(it => (capacidade(it) > 0 ? Math.max(it.vmdHoje, 0) : 0));
-      return {rotulo, abertura, vmd, tanque, vmdComTanque, dias: vmd > 0 ? abertura / vmd : null, autonomia: tanque > 0 && vmdComTanque > 0 ? tanque / vmdComTanque : null};
+      const vmdComTanque = soma(it => (capacidade(it) > 0 ? vmdRef(it) : 0));
+      return {rotulo, abertura, vmd, tanque, vmdComTanque, dias: vmd >= 1 ? abertura / vmd : null, autonomia: tanque > 0 && vmdComTanque > 0 ? tanque / vmdComTanque : null};
     }).filter(Boolean);
     // Linha de total (pedido da usuaria, 2026-10-14: "faca um somatorio"): volumes somados; dias e
     // autonomia recalculados sobre os totais (nao e' soma nem media dos dias de cada produto).
     const total = ['abertura', 'vmd', 'tanque', 'vmdComTanque'].reduce((t, k) => ({...t, [k]: linhas.reduce((s, l) => s + l[k], 0)}), {});
-    total.dias = total.vmd > 0 ? total.abertura / total.vmd : null;
+    total.dias = total.vmd >= 1 ? total.abertura / total.vmd : null;
     total.autonomia = total.tanque > 0 && total.vmdComTanque > 0 ? total.tanque / total.vmdComTanque : null;
     alvo.innerHTML = `<div class="ranking-produtos-topo"><strong>${esc(cidadeRanking || 'Todas as cidades')}</strong>${cidadeRanking ? ' <button type="button" id="ranking-limpar">ver todas</button>' : '<small>clique numa cidade do ranking para filtrar</small>'}</div>
       <table class="ranking-produtos-tabela"><thead><tr><th>Produto</th><th>Abertura estoque</th><th>VMD planejada</th><th>Dias de estoque</th><th>Tamanho do tanque</th><th title="Tamanho do tanque ÷ VMD planejada: quantos dias de venda o tanque cheio aguenta">Autonomia do tanque (dias)</th></tr></thead>
       <tbody>${linhas.map(l => `<tr><th>${esc(l.rotulo)}</th><td>${fmt(l.abertura)}</td><td>${fmt(l.vmd)}</td><td>${l.dias == null ? '—' : dias1(l.dias)}</td><td>${l.tanque ? fmt(l.tanque) : '<span class="sem-capacidade">Sem capacidade estabelecida</span>'}</td><td>${l.autonomia == null ? '—' : dias1(l.autonomia)}</td></tr>`).join('')}</tbody>
-      <tfoot><tr><th>Total</th><td>${fmt(total.abertura)}</td><td>${fmt(total.vmd)}</td><td>${total.dias == null ? '—' : dias1(total.dias)}</td><td>${total.tanque ? fmt(total.tanque) : '—'}</td><td>${total.autonomia == null ? '—' : dias1(total.autonomia)}</td></tr></tfoot></table>
-      <p class="muted ranking-nota">Volumes em m³ (VMD em m³ por dia). Tanque: capacidade da planilha de tancagem; o que não está nela fica sem capacidade estabelecida. Autonomia do tanque = tamanho do tanque ÷ VMD dos depósitos com capacidade: quantos dias de venda o tanque cheio aguenta.</p>`;
+      <tfoot><tr><th>Total</th><td>${fmt(total.abertura)}</td><td>${fmt(total.vmd)}</td><td>${total.dias == null ? '—' : dias1(total.dias)}</td><td>${total.tanque ? fmt(total.tanque) : '—'}</td><td>${total.autonomia == null ? '—' : dias1(total.autonomia)}</td></tr></tfoot></table>`;
   }
   $('ranking-dias-bloco').addEventListener('click', event => {
     const linha = event.target.closest('[data-ranking-cidade]');
