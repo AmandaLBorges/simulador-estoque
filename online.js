@@ -78,8 +78,7 @@ el('logout').onclick = async () => { await signOut(auth); location.reload(); };
 const dialogoSenha = el('senha-dialogo');
 function limparSenha() { for (const id of ['senha-atual', 'senha-nova', 'senha-confirma']) el(id).value = ''; el('senha-info').textContent = ''; }
 el('trocar-senha').onclick = () => { limparSenha(); dialogoSenha.showModal(); el('senha-atual').focus(); };
-// Com a senha vencida, "Cancelar" vira "Sair": a janela nao fecha sem trocar.
-el('senha-cancelar').onclick = () => { if (senhaObrigatoria) el('logout').click(); else dialogoSenha.close(); };
+el('senha-cancelar').onclick = () => { if (!senhaObrigatoria) dialogoSenha.close(); };
 el('senha-form').onsubmit = async event => {
   event.preventDefault();
   const info = el('senha-info'), atual = el('senha-atual').value, nova = el('senha-nova').value;
@@ -129,7 +128,7 @@ async function situacaoSenha(user, profile) {
     || (profile.senhaTemporariaEm && atualizada <= profile.senhaTemporariaEm + 2 * 60 * 1000);
   if (temporaria) {
     const prazo = Math.max(atualizada, POLITICA_SENHA_DESDE) + SENHA_TEMPORARIA_MS;
-    return agora > prazo ? {tipo: 'bloqueada'} : {tipo: 'temporaria', prazo};
+    return agora > prazo ? {tipo: 'bloqueada'} : {tipo: 'temporaria', prazo, atualizada};
   }
   const vence = Math.max(atualizada, POLITICA_SENHA_DESDE) + SENHA_VALIDADE_MS;
   if (agora > vence) return {tipo: 'vencida', vence};
@@ -139,29 +138,38 @@ const quando = t => new Date(t).toLocaleString('pt-BR', {day: '2-digit', month: 
 function mostrarAvisoSenha(senha) {
   const aviso = el('aviso-senha');
   if (senha.tipo === 'temporaria') {
-    aviso.querySelector('span').textContent = `Você está usando uma senha temporária. Troque até ${quando(senha.prazo)}; depois disso o acesso fica bloqueado e só volta com “Esqueci minha senha”.`;
+    aviso.querySelector('span').textContent = `Você está usando a senha inicial. Troque agora: no próximo login a troca será obrigatória, e sem troca até ${quando(senha.prazo)} o acesso fica bloqueado (só volta com “Esqueci minha senha”).`;
   } else if (senha.tipo === 'aviso') {
     const dias = Math.max(1, Math.ceil((senha.vence - Date.now()) / DIA));
     aviso.querySelector('span').textContent = `Sua senha vence em ${dias} dia(s), em ${quando(senha.vence)}. Troque agora para não perder o acesso.`;
   } else { aviso.hidden = true; return; }
   aviso.dataset.tipo = senha.tipo; aviso.hidden = false;
 }
-function abrirTrocaObrigatoria() {
+// Troca obrigatoria (a janela nao fecha): senha vencida, ou senha inicial no primeiro acesso — igual ao
+// gerenciador de adicionais ("Defina sua nova senha", pedido da usuaria 2026-10-14).
+function abrirTrocaObrigatoria(motivo = 'vencida') {
   senhaObrigatoria = true;
   limparSenha();
-  el('senha-titulo').textContent = 'Sua senha venceu';
-  el('senha-explica').textContent = 'A senha do simulador vale 3 meses. Crie uma nova senha para continuar.';
-  el('senha-cancelar').textContent = 'Sair';
+  el('senha-titulo').textContent = motivo === 'inicial' ? 'Defina sua nova senha' : 'Sua senha venceu';
+  el('senha-explica').textContent = motivo === 'inicial'
+    ? 'Por segurança, troque a senha inicial (a que você recebeu do administrador) antes de continuar.'
+    : 'A senha do simulador vale 3 meses. Crie uma nova senha para continuar.';
+  // Obrigatorio de verdade (usuaria, 2026-10-14): sem Cancelar nem Sair, so' Salvar.
+  el('senha-cancelar').hidden = true;
+  el('aviso-senha').hidden = true;
   dialogoSenha.showModal(); el('senha-atual').focus();
 }
 function senhaTrocada() {
   senhaObrigatoria = false;
   el('aviso-senha').hidden = true;
-  el('senha-cancelar').textContent = 'Cancelar';
+  el('senha-cancelar').hidden = false;
   el('senha-titulo').textContent = 'Trocar senha';
   el('senha-explica').textContent = 'Informe sua senha atual e a nova senha (mínimo de 6 caracteres).';
 }
 dialogoSenha.addEventListener('cancel', event => { if (senhaObrigatoria) event.preventDefault(); });
+// O Chrome deixa o Esc fechar o <dialog> mesmo com preventDefault (sem interacao recente na pagina);
+// na troca obrigatoria a janela reabre na hora.
+dialogoSenha.addEventListener('close', () => { if (senhaObrigatoria) dialogoSenha.showModal(); });
 el('aviso-senha-trocar').onclick = () => el('trocar-senha').click();
 el('login-switch').onclick = el('logout').onclick;
 await setPersistence(auth, browserSessionPersistence);
@@ -272,8 +280,15 @@ onAuthStateChanged(auth, async user => {
     el('account-bar').hidden = false;
     el('account-email').textContent = `${profile.nome || user.email} · ${profile.perfil}`;
     mostrarAvisoSenha(senha);
-    if (senha.tipo === 'vencida') abrirTrocaObrigatoria();
-    else if (senha.tipo === 'temporaria') el('trocar-senha').click();
+    if (senha.tipo === 'vencida') abrirTrocaObrigatoria('vencida');
+    else if (senha.tipo === 'temporaria') {
+      // Senha inicial (regra da usuaria, 2026-10-14): o 1o login com ela e' livre (so' fica o aviso); a
+      // partir do 2o, a troca e' obrigatoria. "1o login" = ainda nao ha primeiroAcessoEm desta senha inicial.
+      if (!profile.primeiroAcessoEm || profile.primeiroAcessoEm < senha.atualizada) {
+        try { await set(ref(db, `perfis/${user.uid}/primeiroAcessoEm`), serverTimestamp()); }
+        catch (e) { console.warn('Não foi possível registrar o primeiro acesso', e); }
+      } else abrirTrocaObrigatoria('inicial');
+    }
     el('auto-status').textContent = `Fontes de ${data.date}. Recarregue a página para buscar uma nova carga.`;
     const sync = el('sync-status');
     const textoSync = () => {
