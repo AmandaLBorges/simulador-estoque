@@ -299,10 +299,8 @@
   view.dataset.aba = 'alertas'; historicoView.dataset.aba = 'historico';
   marcar('main > .title', 'simulacao cenario');
   marcar('section.filters', 'simulacao cenario');
+  // Editor do dia continua escondido (cenarios.js): a usuaria preferiu a aba Cenario so' com a politica.
   marcar('section.editor-panel', 'cenario');
-  // O editor do dia estava escondido (cenarios.js) desde que a edicao passou pra tabela; volta a
-  // aparecer, mas so' na aba Cenario.
-  document.querySelector('section.editor-panel').hidden = false;
   marcar('section.assumptions', 'cenario');
   for (const filho of main.children) if (!filho.dataset.aba) filho.dataset.aba = 'simulacao';
 
