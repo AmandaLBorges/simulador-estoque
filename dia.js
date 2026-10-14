@@ -41,6 +41,21 @@
   const dataCurta = d => new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
   const indiceHoje = () => Math.max(0, Math.round((new Date(simulationToday() + 'T12:00:00') - new Date(D.date + 'T12:00:00')) / 86400000));
 
+  // "Em trânsito" do BI (coluna transito_caminhoes): so' FOB com status Em Andamento ou Viagem Finalizada,
+  // de hoje em diante — sem CIF e sem Frota Dedicada/Placa Enviada (que o simulador conta no grafico).
+  // Conferido 2026-10-14: com isso o ranking bateu 15 de 15 cidades com o BI.
+  const STATUS_TRANSITO_BI = ['Em Andamento', 'Viagem Finalizada'];
+  function transitoBI(r, hojeIso) {
+    const porDia = D.transitoAoVivo?.[r.bi?.emp_dep]?.[r.bi?.material];
+    if (!porDia) return 0;
+    let total = 0;
+    for (const [dia, dados] of Object.entries(porDia)) {
+      if (dia < hojeIso) continue;
+      for (const v of dados?.viagens || []) if (v.modal === 'fob' && STATUS_TRANSITO_BI.includes(v.status)) total += v.volume || 0;
+    }
+    return total;
+  }
+
   // Situacao de um registro (base + deposito + empresa + produto) na janela hoje..hoje+5.
   function avaliar(r) {
     const content = fresh(r, CENARIO, 'auto'), resultado = E.calculate(content, n);
@@ -65,7 +80,7 @@
       vmdPlanejada: r.bi?.vmdPlanejada ?? null,
       // Igual ao BI ('Abertura Estoque' = abertura - lastro; 'Estoque total' = isso + em transito de hoje em diante).
       lastroHoje: content.lastro || 0,
-      transitoFuturo: resultado.slice(inicio).reduce((s, _, j) => s + (content.movements.fob[inicio + j] || 0) + (content.movements.cif[inicio + j] || 0), 0),
+      transitoFuturo: transitoBI(r, iso(inicio)),
       menor, diaMenor: iso(diaMenor), primeiroCritico: primeiroCritico === null ? null : iso(primeiroCritico),
       ruptura: ruptura === null ? null : iso(ruptura), inicio: iso(inicio), fim: iso(fim)};
   }
@@ -110,7 +125,7 @@
 
   const campoRegiao = $('semana-regiao'), campoBusca = $('semana-base'), campoSituacao = $('semana-situacao'),
     statusEl = $('semana-status'), barra = $('semana-barra'), tabela = $('matriz-risco'), popup = $('matriz-popover'),
-    campoProdutoRanking = $('ranking-produto'), ranking = $('ranking-lista');
+    campoProdutoRanking = $('ranking-produto'), ranking = $('ranking-lista'), campoTransito = $('ranking-transito');
 
   // Ranking de dias de estoque por cidade (pedido da usuaria, 2026-10-14, igual ao visual "Ranking Dias
   // de Estoque" do BI): dias = abertura de hoje / VMD reprojetada de hoje, somando todos os depositos
@@ -151,7 +166,9 @@
   // carga antiga sem esse campo cai na VMD de hoje.
   const vmdRef = it => it.vmdPlanejada ?? Math.max(it.vmdHoje, 0);
   const aberturaLiquida = it => Math.max(it.aberturaHoje, 0) - (it.lastroHoje || 0);
-  const estoqueTotal = it => aberturaLiquida(it) + (it.transitoFuturo || 0);
+  // Ticzinho "Considerar trânsito" (usuaria, 2026-10-14): marcado = igual ao BI; desmarcado = so' a abertura.
+  const comTransito = () => campoTransito.checked;
+  const estoqueTotal = it => aberturaLiquida(it) + (comTransito() ? (it.transitoFuturo || 0) : 0);
 
   // Quadro por produto ao lado do ranking (pedido da usuaria, 2026-10-14, igual ao BI: Abertura Estoque,
   // VMD Planejada, Dias Estoque), mais o tamanho do tanque. Todas as cidades, ou a cidade clicada no ranking.
@@ -169,12 +186,12 @@
       // Autonomia do tanque (pedido da usuaria, 2026-10-14): tanque / VMD = quantos dias de venda o tanque
       // cheio aguenta. So' a VMD de quem tem capacidade, pra venda no bico nao diminuir a autonomia.
       const vmdComTanque = soma(it => (capacidade(it) > 0 ? vmdRef(it) : 0));
-      return {rotulo, abertura, transito, vmd, tanque, vmdComTanque, dias: vmd >= 1 ? (abertura + transito) / vmd : null, autonomia: tanque > 0 && vmdComTanque > 0 ? tanque / vmdComTanque : null};
+      return {rotulo, abertura, transito, vmd, tanque, vmdComTanque, dias: vmd >= 1 ? (abertura + (comTransito() ? transito : 0)) / vmd : null, autonomia: tanque > 0 && vmdComTanque > 0 ? tanque / vmdComTanque : null};
     }).filter(Boolean);
     // Linha de total (pedido da usuaria, 2026-10-14: "faca um somatorio"): volumes somados; dias e
     // autonomia recalculados sobre os totais (nao e' soma nem media dos dias de cada produto).
     const total = ['abertura', 'transito', 'vmd', 'tanque', 'vmdComTanque'].reduce((t, k) => ({...t, [k]: linhas.reduce((s, l) => s + l[k], 0)}), {});
-    total.dias = total.vmd >= 1 ? (total.abertura + total.transito) / total.vmd : null;
+    total.dias = total.vmd >= 1 ? (total.abertura + (comTransito() ? total.transito : 0)) / total.vmd : null;
     total.autonomia = total.tanque > 0 && total.vmdComTanque > 0 ? total.tanque / total.vmdComTanque : null;
     alvo.innerHTML = `<div class="ranking-produtos-topo"><strong>${esc(cidadeRanking || 'Todas as cidades')}</strong>${cidadeRanking ? ' <button type="button" id="ranking-limpar">ver todas</button>' : '<small>clique numa cidade do ranking para filtrar</small>'}</div>
       <table class="ranking-produtos-tabela"><thead><tr><th>Produto</th><th title="Abertura de hoje menos o lastro mínimo">Abertura estoque</th><th>Em trânsito</th><th>VMD planejada</th><th>Dias de estoque</th><th>Tamanho do tanque</th><th title="Tamanho do tanque ÷ VMD planejada: quantos dias de venda o tanque cheio aguenta">Autonomia do tanque (dias)</th></tr></thead>
@@ -200,6 +217,8 @@
     renderRanking(itens, colunasDe(itens), matriz(itens));
   }
   campoProdutoRanking.onchange = renderCenario;
+  try { campoTransito.checked = localStorage.getItem('simulador.cenarioTransito') !== 'nao'; } catch { /* sem armazenamento: fica marcado */ }
+  campoTransito.onchange = () => { try { localStorage.setItem('simulador.cenarioTransito', campoTransito.checked ? 'sim' : 'nao'); } catch {} renderCenario(); };
 
   function render() {
     statusEl.textContent = 'Calculando…'; barra.innerHTML = ''; tabela.innerHTML = ''; fecharPopup();

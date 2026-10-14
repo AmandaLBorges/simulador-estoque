@@ -290,3 +290,12 @@ button.ranking-linha.selecionada{background:#EEFE7A1a;box-shadow:inset 0 0 0 1px
 .aviso-senha{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:8px 16px 0;padding:10px 14px;border-radius:10px;background:#3a2a0a;border:1px solid #FACC15;color:#FDE68A;font-size:13px}
 .aviso-senha[data-tipo="temporaria"]{background:#3b1210;border-color:#FF6B5F;color:#FFD0CC}
 .aviso-senha button{flex:none;padding:6px 12px;font-size:12px}
+/* Ajuste de largura: quadro com 7 colunas nao pode empurrar a pagina (2026-10-14) */
+.ranking-corpo{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}
+.ranking-corpo>*{min-width:0}
+.ranking-produtos{overflow-x:auto}
+.ranking-produtos-tabela th,.ranking-produtos-tabela td{padding:6px 7px}
+.ranking-produtos-tabela thead th{white-space:normal;line-height:1.2;vertical-align:bottom}
+.ranking-dias{overflow:hidden}
+@media(max-width:1350px){.ranking-corpo{grid-template-columns:1fr}.ranking-produtos{border-left:0;padding-left:0;border-top:1px solid var(--border);padding-top:14px}}
+.ranking-controles{display:flex;align-items:end;gap:16px;flex-wrap:wrap}.ranking-transito-label{display:inline-flex;align-items:center;gap:6px;min-width:0!important;padding-bottom:10px;font-size:13px;cursor:pointer}
