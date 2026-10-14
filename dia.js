@@ -355,6 +355,8 @@
   // Editor do dia continua escondido (cenarios.js): a usuaria preferiu a aba Cenario so' com a politica.
   marcar('section.editor-panel', 'cenario');
   marcar('section.assumptions', 'cenario');
+  // "Pontos de atencao" saiu da tela (usuaria, 2026-10-14: "pode tirar"): fica fora de todas as abas.
+  marcar('#alerts', 'nenhuma');
   for (const filho of main.children) if (!filho.dataset.aba) filho.dataset.aba = 'simulacao';
 
   const botoesAba = [...document.querySelectorAll('#abas-bar [data-aba-alvo]')];
