@@ -2,7 +2,7 @@ import { firebaseAuth as auth, firebaseDatabase as db } from './firebase.js';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, setPersistence,
   browserSessionPersistence, sendPasswordResetEmail, EmailAuthProvider, reauthenticateWithCredential,
   updatePassword } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
-import { ref, get, set, runTransaction, serverTimestamp, onValue } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
+import { ref, get, set, update, push, runTransaction, serverTimestamp, onValue } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 
 const el = id => document.getElementById(id);
 let started = false;
@@ -15,10 +15,13 @@ function errorText(error) {
     'PERMISSION_DENIED': 'Seu acesso aos dados ainda não foi liberado.'})[error.code]
     || error.message || 'Não foi possível concluir a operação.';
 }
+// Versao dos arquivos do site (2026-10-19): preparar_site.py troca 'dev' por um codigo que muda a cada
+// alteracao; o ?v=<codigo> obriga o navegador a baixar o arquivo novo (antes ficava com o antigo em cache).
+const VERSAO_SITE = 'b4caa279de';
 function script(name) {
   return new Promise((resolve, reject) => {
     const tag = document.createElement('script');
-    tag.src = name; tag.onload = resolve;
+    tag.src = VERSAO_SITE === 'dev' ? name : `${name}?v=${VERSAO_SITE}`; tag.onload = resolve;
     tag.onerror = () => reject(new Error(`Não foi possível carregar ${name}. Recarregue a página.`));
     document.body.append(tag);
   });
@@ -204,7 +207,7 @@ onAuthStateChanged(auth, async user => {
     status('Conferindo acesso e carregando estoques…');
     const profile = (await get(ref(db, `perfis/${user.uid}`))).val();
     if (!profile || profile.email?.toLowerCase() !== user.email?.toLowerCase()
-        || !['administrador', 'regional', 'leitura'].includes(profile.perfil)) {
+        || !['administrador', 'regional', 'leitura', 'base'].includes(profile.perfil)) {
       throw new Error('Sua conta ainda não tem acesso liberado ao simulador.');
     }
     const senha = await situacaoSenha(user, profile);
@@ -223,6 +226,70 @@ onAuthStateChanged(auth, async user => {
       } else esperarLiberacao(user);
       return;
     }
+    // Aba Aberturas (2026-10-16): as bases preenchem a abertura do dia no portal, no lugar da planilha.
+    // Layout (cidades > terminais > produtos) vem de cadastros/aberturas, gerado da planilha por
+    // gerar_layout_aberturas.py. Valores em aberturas/<dia>/<empDep>/<produtoHex>; cada alteracao vira
+    // uma linha em aberturasHistorico/<dia>/<empDep> (quem, quando, valor anterior e novo).
+    // Perfil 'base' edita so' as bases dele (perfis/<uid>/bases/<empDep> = true); admin/regional, todas.
+    const aberturasApi = {
+      // Quem enxerga a aba: perfil 'base' (so' ela) e quem tiver perfis/<uid>/verAberturas = true. Enquanto
+      // o processo e' implantado (usuaria, 2026-10-16: "deixa so eu ver a aba de abertura por enquanto"),
+      // so' a conta dela tem a marca; liberar outras pessoas e' so' marcar o perfil.
+      // 2026-10-20 (usuaria): a aba fica liberada pra todos os perfis, so' pra ver; edita so' o perfil 'base' (nos
+      // terminais dele) e quem tiver perfis/<uid>/editaAberturas = true. Mesma regra do gerar_regras_acesso.py.
+      veAberturas() { return true; },
+      canEditAbertura(empDep) {
+        return profile.editaAberturas === true || (profile.perfil === 'base' && profile.bases?.[empDep] === true);
+      },
+      produtoKey(produto) { return hex(produto); },
+      async aberturasLayout() { return (await get(ref(db, 'cadastros/aberturas'))).val(); },
+      async aberturasDoDia(dia) { return (await get(ref(db, `aberturas/${dia}`))).val() || {}; },
+      // Referencia do MIS do dia (litros), so' indicativo na tela (2026-10-19). Sem permissao/sem dado = {}.
+      async referenciaAberturas(dia) { try { return (await get(ref(db, `aberturas/${dia}/_mis`))).val() || {}; } catch { return {}; } },
+      // Botao "Baixar consolidado (Excel)" (usuaria, 2026-10-28: so' ela e a Aiko): marca exportaAberturas no perfil;
+      // o modelo da planilha (cadastros/modeloExcelAberturas) so' e' legivel com a marca (gerar_regras_acesso.py).
+      podeExportarAberturas() { return profile.exportaAberturas === true; },
+      async modeloExcelAberturas() { return (await get(ref(db, 'cadastros/modeloExcelAberturas'))).val(); },
+      async historicoAberturas(dia, empDep) { return (await get(ref(db, `aberturasHistorico/${dia}/${empDep}`))).val() || {}; },
+      // Grava o terminal inteiro numa operacao so' (valores + historico das mudancas). `linhas`:
+      // [{produto, unidade, valores:{abertura, recebEfetuado, recebProgramado}, anteriores:{...}|null}].
+      async salvarAberturaTerminal(dia, empDep, terminal, linhas) {
+        const autorNome = profile.nome || user.email, caminhos = {};
+        for (const l of linhas) {
+          const chave = hex(l.produto);
+          caminhos[`aberturas/${dia}/${empDep}/${chave}`] = {terminal, produto: l.produto, unidade: l.unidade, ...l.valores,
+            atualizadoPor: user.uid, atualizadoPorNome: autorNome, atualizadoEm: serverTimestamp()};
+          for (const campo of ['abertura', 'recebEfetuado', 'recebProgramado']) {
+            const de = l.anteriores?.[campo] ?? null, para = l.valores[campo];
+            if (de === para || (de === null && para === 0)) continue;   // campo em branco salvo como 0 nao e' alteracao
+            caminhos[`aberturasHistorico/${dia}/${empDep}/${push(ref(db, `aberturasHistorico/${dia}/${empDep}`)).key}`] =
+              {produto: l.produto, campo, de, para, por: user.uid, porNome: autorNome, em: serverTimestamp()};
+          }
+        }
+        await update(ref(db), caminhos);
+      },
+    };
+    // Fim comum do login (os dois caminhos: completo e so' Aberturas).
+    const concluirEntrada = async () => {
+      started = true;
+      registrarAtividade(true);
+      document.body.classList.remove('auth-pending'); el('login-screen').hidden = true;
+      el('account-bar').hidden = false;
+      el('account-email').textContent = `${profile.nome || user.email} · ${profile.perfil}`;
+      mostrarAvisoSenha(senha);
+      if (senha.tipo === 'vencida') abrirTrocaObrigatoria('vencida');
+      else if (senha.tipo === 'temporaria') {
+        // Senha inicial (regra da usuaria, 2026-10-14): o 1o login com ela e' livre (so' fica o aviso); a
+        // partir do 2o, a troca e' obrigatoria. "1o login" = ainda nao ha primeiroAcessoEm desta senha inicial.
+        if (!profile.primeiroAcessoEm || profile.primeiroAcessoEm < senha.atualizada) {
+          try { await set(ref(db, `perfis/${user.uid}/primeiroAcessoEm`), serverTimestamp()); }
+          catch (e) { console.warn('Não foi possível registrar o primeiro acesso', e); }
+        } else abrirTrocaObrigatoria('inicial');
+      }
+    };
+    // Perfil 'base': ate' 2026-10-21 so' via a aba Aberturas; agora ve todas as abas do simulador como consulta
+    // (usuaria: "deixa as outras abas pra eles verem tambem, como Alertas, Cenario") — edita so' as aberturas
+    // dos terminais dele; nao salva cenario (canEdit e' so' administrador/regional).
     // A carga continua publicada por região, mas todo perfil baixa todas (sem segregação, 2026-10-09).
     const visibleRegions = ['SP', 'MG_RJ', 'CO'];
     const [metaSnapshot, regions, transitoSnapshot, ...regionSnapshots] = await Promise.all([
@@ -290,29 +357,23 @@ onAuthStateChanged(auth, async user => {
         return {...registro, numero};
       },
       async listDay(dia) { return (await get(ref(db, `cenariosDia/${dia}`))).val() || {}; },
+      ...aberturasApi,
+      // Dias 15..29 sob demanda (botao "+ fim do LE", 2026-10-19): {record_id: {iso: dia}} das 3 regioes.
+      async carregarExtensao() {
+        const partes = await Promise.all(visibleRegions.map(r => get(ref(db, `fontes/extensao/${r}`)).then(s => s.val()).catch(() => null)));
+        const saida = {};
+        for (const p of partes) if (p?.conteudo && p.data === data.date) Object.assign(saida, JSON.parse(p.conteudo));
+        return saida;
+      },
       // Varias datas em paralelo (visao semanal) — cada dia falho vira {} em vez de derrubar a semana toda.
       async listRange(dias) {
         const arvores = await Promise.all(dias.map(dia => get(ref(db, `cenariosDia/${dia}`)).then(s => s.val() || {}).catch(() => ({}))));
         return Object.fromEntries(dias.map((dia, i) => [dia, arvores[i]]));
       },
     };
-    for (const name of ['motor.js', 'sugestao.js', 'app.js', 'editor.js', 'automatico.js', 'cenarios.js', 'compartilhado.js', 'dia.js']) await script(name);
-    started = true;
-    registrarAtividade(true);
-    document.body.classList.remove('auth-pending'); el('login-screen').hidden = true;
-    el('account-bar').hidden = false;
-    el('account-email').textContent = `${profile.nome || user.email} · ${profile.perfil}`;
-    mostrarAvisoSenha(senha);
-    if (senha.tipo === 'vencida') abrirTrocaObrigatoria('vencida');
-    else if (senha.tipo === 'temporaria') {
-      // Senha inicial (regra da usuaria, 2026-10-14): o 1o login com ela e' livre (so' fica o aviso); a
-      // partir do 2o, a troca e' obrigatoria. "1o login" = ainda nao ha primeiroAcessoEm desta senha inicial.
-      if (!profile.primeiroAcessoEm || profile.primeiroAcessoEm < senha.atualizada) {
-        try { await set(ref(db, `perfis/${user.uid}/primeiroAcessoEm`), serverTimestamp()); }
-        catch (e) { console.warn('Não foi possível registrar o primeiro acesso', e); }
-      } else abrirTrocaObrigatoria('inicial');
-    }
-    el('auto-status').textContent = `Fontes de ${data.date}. Recarregue a página para buscar uma nova carga.`;
+    for (const name of ['motor.js', 'sugestao.js', 'app.js', 'editor.js', 'automatico.js', 'cenarios.js', 'compartilhado.js', 'dia.js', 'aberturas.js']) await script(name);
+    await concluirEntrada();
+    el('auto-status').textContent = `Fontes de ${data.date}. A tela atualiza sozinha quando sai uma carga nova.`;
     const sync = el('sync-status');
     const textoSync = () => {
       if (!sync || !data.bi?.extractedAt) return;
@@ -352,6 +413,45 @@ onAuthStateChanged(auth, async user => {
         else document.querySelectorAll('.fonte-hora[data-fonte="transito"]').forEach(n => { n.outerHTML = window.horaFonte?.('transito') || ''; });
       } catch (e) { console.warn('Falha ao baixar o trânsito atualizado', e); }
     });
+    // Carga principal AO VIVO (usuaria, 2026-10-21: "delays de um usuario pra outro ... de puxar os dados"): antes a
+    // carga so' era lida ao abrir a pagina, entao quem abriu antes da ultima publicacao ficava com numeros velhos
+    // ate' dar F5. Agora escuta fontes/atual/meta; quando muda a revisao, baixa as 3 regioes de novo, troca no
+    // proprio objeto D (mesma referencia do app.js) e refaz a tela com select() — preserva o que a pessoa editou.
+    // Carga de OUTRO dia muda o eixo de datas inteiro: ai' so' avisa no topo pra recarregar a pagina.
+    // So' baixa com a aba do navegador VISIVEL (2026-10-21: cada carga tem ~5 MB e o plano gratuito do Firebase da'
+    // 10 GB/mes de download): aba em segundo plano guarda a revisao nova e baixa uma vez so' quando voltar.
+    let revisaoAtual = envelope.revision, baixandoCarga = false, metaPendente = null;
+    const aoMudarMeta = async meta => {
+      if (!meta?.revision || meta.revision === revisaoAtual || baixandoCarga) return;
+      if (document.hidden) { metaPendente = meta; return; }
+      metaPendente = null;
+      baixandoCarga = true;
+      try {
+        const nova = JSON.parse(meta.conteudo);
+        if (nova.date !== data.date) {
+          if (sync) { sync.textContent = '⟳ Carga de um novo dia publicada · clique para atualizar'; sync.style.cursor = 'pointer'; sync.onclick = () => location.reload(); }
+          return;
+        }
+        const partes = await Promise.all(visibleRegions.map(name => get(ref(db, `fontes/atual/regioes/${name}`))));
+        const records = [], history = {};
+        for (const s of partes) {
+          const part = s.val();
+          if (!part) continue;
+          if (part.revision !== meta.revision) return;  // publicacao em andamento: a proxima mudanca do meta traz tudo
+          const content = JSON.parse(part.conteudo);
+          records.push(...content.records);
+          for (const [day, items] of Object.entries(content.history || {})) history[day] = {...(history[day] || {}), ...items};
+        }
+        const transitoAtual = data.transitoAoVivo;
+        Object.assign(data, nova, {records, history, transitoAoVivo: transitoAtual});
+        revisaoAtual = meta.revision;
+        textoSync();
+        refazer();
+      } catch (e) { console.warn('Falha ao baixar a carga atualizada', e); }
+      finally { baixandoCarga = false; }
+    };
+    onValue(ref(db, 'fontes/atual/meta'), snap => aoMudarMeta(snap.val()));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && metaPendente) aoMudarMeta(metaPendente); });
     textoSync();
   } catch (error) { status(errorText(error)); el('login-switch').hidden = false; }
 });

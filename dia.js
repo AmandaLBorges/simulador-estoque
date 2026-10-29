@@ -24,6 +24,8 @@
     ['Diesel S500 A', 'S500'], ['Etanol Anidro', 'Anidro'], ['Etanol Hidratado', 'Hidratado'], ['Biodiesel', 'B100']];
 
   function abrirCenario(base, produto, cenario = CENARIO) {
+    // Perfil 'base' nao ve a aba Simulacao de estoques (usuaria, 2026-10-21): o clique nos Alertas nao leva pra la'.
+    if (window.SIM_AUTH?.profile?.perfil === 'base') return;
     trocarAba('simulacao');
     // Mesmo caminho de quem escolhe na mao (onchange), pra marcar os chips de deposito/empresa —
     // so' trocar o .value dos selects deixava a tela sem base selecionada.
@@ -218,8 +220,10 @@
     renderRanking(itens, colunasDe(itens), matriz(itens));
   }
   campoProdutoRanking.onchange = renderCenario;
-  try { campoTransito.checked = localStorage.getItem('simulador.cenarioTransito') !== 'nao'; } catch { /* sem armazenamento: fica marcado */ }
-  campoTransito.onchange = () => { try { localStorage.setItem('simulador.cenarioTransito', campoTransito.checked ? 'sim' : 'nao'); } catch {} renderCenario(); };
+  // Sempre abre marcado, sem lembrar do navegador (usuaria, 2026-10-28: tudo no padrao a cada acesso).
+  campoTransito.checked = true;
+  try { localStorage.removeItem('simulador.cenarioTransito'); } catch {}
+  campoTransito.onchange = () => renderCenario();
 
   function render() {
     statusEl.textContent = 'Calculando…'; barra.innerHTML = ''; tabela.innerHTML = ''; fecharPopup();
@@ -300,7 +304,7 @@
 
   async function renderHistorico() {
     const minha = ++geracaoHist;
-    statusHist.textContent = 'Carregando…'; listaHist.innerHTML = '';
+    statusHist.textContent = 'Carregando…'; listaHist.innerHTML = ''; itensHist = [];
     const dia = campoDiaHist.value || simulationToday();
     let arvore;
     try { arvore = await cloud.listDay(dia); }
@@ -328,20 +332,54 @@
       <summary><strong>${esc(c.cidade)}</strong> <small>${c.lista.length} simulação(ões)</small></summary>
       <table class="hoje-tabela"><thead><tr><th>Base</th><th>Produto</th><th>Cenário</th><th>Situação ao salvar</th><th>Menor estoque (m³)</th><th>Versão</th><th>Autor / motivo</th><th>Horário</th><th></th></tr></thead>
       <tbody>${c.lista.map(it => `<tr class="dia-${it.indicadores?.situacao || ''}">
-        <td>${esc(it.base)}</td><td>${esc(it.produto)}</td><td>${esc(it.cenario)}</td>
+        <td>${esc(it.base)}</td><td>${esc(it.produto)}</td><td>${esc(it.cenario === 'Real' ? 'Faturamento' : it.cenario)}</td>
         <td>${esc(rotuloSalvo[it.indicadores?.situacao] || '—')}</td>
         <td>${it.indicadores ? fmt(it.indicadores.menorEstoque) : '—'}${it.indicadores?.diaMenorEstoque ? ` <small>em ${dataCurta(it.indicadores.diaMenorEstoque)}</small>` : ''}</td>
         <td>v${it.versao}</td>
         <td>${esc(it.autorNome || '—')}${it.motivo ? `<br><small>${esc(it.motivo)}</small>` : ''}</td>
         <td>${it.atualizadoEm ? new Date(it.atualizadoEm).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'}) : '—'}</td>
-        <td><button type="button" data-abrir-hist="${esc(it.base)}|${esc(it.produto)}|${esc(it.cenario)}">Abrir</button></td>
+        <td><button type="button" data-abrir-hist="${itensHist.push(it) - 1}">Abrir</button></td>
       </tr>`).join('')}</tbody></table>
     </details>`).join('');
   }
+  // "Abrir" mostra a simulacao CONGELADA, exatamente como o analista salvou (premissas + movimentos gravados
+  // em `conteudo`), sem levar pro simulador com os dados de hoje (usuaria, 2026-10-20: "quero que realmente
+  // seja o cenario que o analista salvou, e nao que me envie pro simulador do dia atual").
+  let itensHist = [];
+  const dialogoHist = document.createElement('dialog');
+  dialogoHist.className = 'hist-dialogo'; document.body.append(dialogoHist);
+  dialogoHist.addEventListener('click', e => { if (e.target === dialogoHist || e.target.closest('[data-fechar]')) dialogoHist.close(); });
+  function abrirVersaoSalva(it) {
+    let s;
+    try { s = JSON.parse(it.conteudo); } catch { alert('Não foi possível ler esta versão salva.'); return; }
+    const inicio = Math.max(0, Math.round((new Date((it.atualizadoEm ? new Date(it.atualizadoEm).toLocaleDateString('sv-SE') : s.date) + 'T12:00:00')
+      - new Date(s.date + 'T12:00:00')) / 86400000));
+    const total = Math.min(30, s.movements?.sale?.length || 15), dias = [...Array(Math.min(15, total - inicio)).keys()].map(k => k + inicio);
+    const calc = E.calculate(s, total);
+    const dataDe = i => { const d = new Date(s.date + 'T12:00:00'); d.setDate(d.getDate() + i);
+      return d.toLocaleDateString('pt-BR', {weekday: 'short', day: '2-digit', month: '2-digit'}).replace('.', ''); };
+    const rotuloVenda = {VMD: 'Vendas · VMD reprojetada', 'Pedidos em tela': 'Vendas · Pedidos em tela', Real: 'Vendas · Faturamento', LE: 'Vendas · LE vigente'}[s.scenario] || 'Vendas';
+    const linhasMov = E.rows.filter(([k]) => dias.some(i => (s.movements[k]?.[i] || 0) !== 0))
+      .map(([k, nome, sinal]) => `<tr><th scope="row">${sinal > 0 ? '+' : '−'} ${esc(k === 'sale' ? rotuloVenda : nome)}</th>${dias.map(i => `<td>${fmt(s.movements[k][i])}</td>`).join('')}</tr>`).join('');
+    const faixa = v => ({danger: 'hist-critico', warn: 'hist-atencao', good: 'hist-ok', high: 'hist-alto'})[E.stockBand(v, s)] || '';
+    const premissa = (rot, v) => `<div><small>${rot}</small><strong>${v == null ? '—' : fmt(v) + ' m³'}</strong></div>`;
+    dialogoHist.innerHTML = `<header><div><h2>${esc(it.base)} · ${esc(it.produto)}</h2>
+        <p>Cenário <strong>${esc(it.cenario === 'Real' ? 'Faturamento' : it.cenario)}</strong> · v${it.versao} · salvo por <strong>${esc(it.autorNome || '—')}</strong>
+        ${it.atualizadoEm ? ` em ${new Date(it.atualizadoEm).toLocaleString('pt-BR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}` : ''}
+        ${it.motivo ? `<br>Motivo: ${esc(it.motivo)}` : ''}</p>
+        <p class="hist-congelado">🔒 Exatamente como foi salvo — não usa os dados de hoje.</p></div>
+        <button type="button" data-fechar aria-label="Fechar">✕</button></header>
+      <div class="hist-premissas">${premissa('Abertura', s.opening)}${premissa('Lastro', s.lastro)}${premissa('Mínimo', s.min)}${premissa('Médio', s.mid)}${premissa('Máximo', s.max)}${premissa('Capacidade', s.capacity)}</div>
+      <div class="hist-tabela"><table><thead><tr><th>m³</th>${dias.map(i => `<th>${dataDe(i)}</th>`).join('')}</tr></thead><tbody>
+        <tr class="hist-abertura"><th scope="row">Estoque inicial</th>${dias.map(i => `<td>${fmt(calc[i].opening)}</td>`).join('')}</tr>
+        ${linhasMov}
+        <tr class="hist-final"><th scope="row">= Estoque final</th>${dias.map(i => `<td class="${faixa(calc[i].close)}">${fmt(calc[i].close)}</td>`).join('')}</tr>
+      </tbody></table></div>`;
+    dialogoHist.showModal();
+  }
   listaHist.addEventListener('click', event => {
     const botao = event.target.closest('[data-abrir-hist]'); if (!botao) return;
-    const [base, produto, cenario] = botao.dataset.abrirHist.split('|');
-    abrirCenario(base, produto, cenario);
+    const it = itensHist[+botao.dataset.abrirHist]; if (it) abrirVersaoSalva(it);
   });
   [campoDiaHist, campoRegiaoHist].forEach(el => el.onchange = renderHistorico);
   let atrasoHist;
@@ -373,7 +411,6 @@
     document.body.dataset.aba = nome;
     botoesAba.forEach(b => b.setAttribute('aria-selected', String(b.dataset.abaAlvo === nome)));
     fecharPopup();
-    try { localStorage.setItem('simulador.aba', nome); } catch { /* sem armazenamento: so' nao lembra a aba */ }
     if (nome === 'alertas') render();
     else if (nome === 'cenario') renderCenario();
     else if (nome === 'historico') renderHistorico();
@@ -381,7 +418,8 @@
   botoesAba.forEach(b => b.onclick = () => { trocarAba(b.dataset.abaAlvo); scrollTo({top: 0}); });
   $('abas-bar').hidden = false;
   abrir.hidden = true; fechar.hidden = true;
-  let abaInicial = 'simulacao';
-  try { abaInicial = localStorage.getItem('simulador.aba') || 'simulacao'; } catch { /* idem */ }
-  trocarAba(botoesAba.some(b => b.dataset.abaAlvo === abaInicial) ? abaInicial : 'simulacao');
+  // Sempre abre na "Simulacao de estoques" (usuaria, 2026-10-28: "quero que ja venha padrao na aba Simulacao de
+  // estoques"); nao lembra mais a ultima aba. O perfil 'base' continua abrindo em Aberturas (aberturas.js).
+  try { localStorage.removeItem('simulador.aba'); } catch {}
+  trocarAba('simulacao');
 })();

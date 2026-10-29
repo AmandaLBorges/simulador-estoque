@@ -24,7 +24,8 @@
   // igual sempre foi (o filtro de regiao ja' restringe quais bases entram na combinacao, em
   // registrosAtuais()/basesPermitidas()) — so' "Salvar na equipe" fica bloqueado, porque nao existe
   // uma unica base pra registrar o cenario salvo.
-  const editable = () => Boolean(record) && (modoCombinado || cloud.canEdit(record.base));
+  // Perfil de consulta (base/leitura) nao edita nem no combinado (usuaria, 2026-10-27: "somente como leitura").
+  const editable = () => Boolean(record) && cloud.canEdit(record.base);
   function lock() {
     const allowed = editable();
     const podeSalvarEquipe = allowed && !modoCombinado;
@@ -79,7 +80,7 @@
     if (existentes.length) {
       const ultima = existentes.sort((a, b) => b.versao - a.versao)[0];
       const prosseguir = confirm(`Já existe uma visão salva hoje para ${base} · ${record.product} · `
-        + `${content.scenario} (v${ultima.versao}, por ${ultima.autorNome}). Salvar uma nova versão? `
+        + `${content.scenario === 'Real' ? 'Faturamento' : content.scenario} (v${ultima.versao}, por ${ultima.autorNome}). Salvar uma nova versão? `
         + 'A anterior continua no histórico.');
       if (!prosseguir) { note('Cenário salvo para a equipe. Visão do dia não atualizada.'); return; }
       motivo = (prompt('Motivo da nova versão (obrigatório):', '') || '').trim();

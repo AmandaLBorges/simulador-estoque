@@ -3,9 +3,13 @@
  // 5 cenarios (pedido da usuaria, 2026-09-30): VMD/LE/Pedidos em tela/Real puxam dado pra linha que
  // debita (unica editavel); Disp MIS mantido a pedido dela ("deixa disp mis tbm"). O usuario sempre
  // pode digitar por cima do valor puxado (customizar), igual ja funcionava antes.
- const modes=['VMD','LE','Pedidos em tela','Real','Disp MIS'];
+ // So' 3 opcoes de venda (usuaria, 2026-10-19: "tira o LE e o Disp MIS"). O calculo do LE/Disp MIS continua
+ // no app.js (cenarios salvos antigos ainda abrem), so' sem botao.
+ // Disp. MIS voltou (usuaria, 2026-10-21: "na saida coloca a opcao de disponibilidade MIS, igual estava antes").
+ const modes=['VMD','Pedidos em tela','Real','Disp MIS'];
  // So' o texto do botao muda (2026-10-16); o valor interno continua 'VMD' (regras do Firebase e cenarios salvos).
- const rotuloCenario={VMD:'VMD reprojetada'};
+ // "Real" aparece como "Faturamento" (usuaria, 2026-10-28); o valor interno continua 'Real'.
+ const rotuloCenario={VMD:'VMD reprojetada','Disp MIS':'Disp. MIS',Real:'Faturamento'};
  const today=simulationToday;
  const dateLabel=value=>new Date(value+'T12:00:00').toLocaleDateString('pt-BR');
  const popup=$('sales-popover');
@@ -16,7 +20,7 @@
  // Pedido da usuaria, 2026-10-01: a tela agora abre sem nada selecionado (antes vinha com uma base
  // padrao fixa), entao "state" pode nao existir ainda nesse ponto — sem a guarda, isso quebrava TODO
  // o resto do script (botoes de cenario, popup, render/renderEditor sobrescritos) silenciosamente.
- if(state)selector.value=state.scenario;
+ if(state)selector.value=modes.includes(state.scenario)?state.scenario:'VMD';
  if(D.validationStart){
   $('history-grid').closest('section').hidden=true;
   const period=document.querySelector('.filters input[value]');
@@ -37,7 +41,16 @@
  tableSection.querySelector('.section-title').append($('saved'));
  const sourceDetails=$('source').closest('details');
  for(const id of ['bi-loaded','auto-status','scenario-note'])sourceDetails.append($(id));
- document.querySelector('.product-options').hidden=true;
+ // Cidade, deposito, empresa e produto em BOTOES, sempre a vista (pedido da gestao, 2026-10-28: "foi pedido pra esses
+ // filtros estarem em formato de botao"): os <select> continuam guardando a escolha, so' saem da tela; os chips
+ // (editor.js renderChips) sao o controle. Produto vem logo depois das bases.
+ const opcoesBase=document.querySelector('.base-options'),opcoesProduto=document.querySelector('.product-options');
+ opcoesBase.open=true;opcoesBase.classList.add('sempre-aberto');
+ opcoesBase.addEventListener('toggle',()=>{if(!opcoesBase.open)opcoesBase.open=true;});
+ for(const [id,rotulo] of [['cidade-chips','CIDADE'],['deposito-chips','DEPÓSITO'],['empresa-chips','EMPRESA']])
+  $(id).insertAdjacentHTML('beforebegin',`<span class="eyebrow chips-rotulo">${rotulo}</span>`);
+ opcoesBase.after(opcoesProduto);
+ for(const id of ['cidade','deposito','empresa','product'])$(id).closest('label').hidden=true;
  // .base-options (chips de cidade/deposito/empresa) NAO fica mais escondido aqui (pedido da usuaria,
  // 2026-10-05, "onde fica o botao? nao encontrei!") — antes era escondido sempre, mesmo antes de ter
  // isso que mostrar; agora precisa continuar acessivel DEPOIS da selecao tambem, porque e' onde a
@@ -63,12 +76,20 @@
  // Bombeio + Transferencia-entrada. O <select id="entrada"> continua existindo (escondido) so' como
  // estado — os botoes espelham ele, igual o #scenario acima.
  const entradaSelector=$('entrada');
- const entradaModes=[['auto','Fontes automáticas'],['cadencia','Cadência MIS'],['auto+naoprog','Programado + Não programado']];
+ // 'auto' aparece como "Real" (usuaria, 2026-10-19): so' o que ja' esta' no transito.
+ // Resumo da regra de cada botao (aparece ao passar o mouse; usuaria, 2026-10-19).
+ const entradaModes=[
+  ['auto','Trânsito real','Só o que já está no trânsito: FOB e CIF com placa, transferências com status de viagem (T1 a T5) e o bombeio da cadência MIS.'],
+  ['auto+naoprog','Trânsito real + Não programado','Igual ao botão LE do BI: viagens do portal com e sem placa (Ofertado, Aceito, Backlog) e transferências sem status em todos os dias; da semana que vem em diante soma a cadência MIS que ainda não virou viagem no portal. Quando a S+1 sobe no portal, passa a valer o portal.'],
+  // 3 botoes (usuaria, 2026-10-21): Transito real, Transito real + Nao programado e Cadencia MIS ("deixa da cadencia do
+  // MIS tbm"). O LE saiu da tela; o calculo dele continua no app.js.
+  ['cadencia','Cadência MIS','Só o planejado na cadência do MIS: FOB, CIF e bombeio. Não usa o portal.'],
+ ];
  entradaSelector.parentElement.hidden=true;
  const entradaControls=document.createElement('div');
  entradaControls.className='scenario-controls';
  entradaControls.title='Puxar entrada de';
- entradaControls.innerHTML='<span>Entrada</span><div class="scenario-buttons" role="group" aria-label="Origem da entrada">'+entradaModes.map(([valor,rotulo])=>`<button type="button" data-entrada="${valor}" aria-pressed="false">${rotulo}</button>`).join('')+'</div>';
+ entradaControls.innerHTML='<span>Entrada</span><div class="scenario-buttons" role="group" aria-label="Origem da entrada">'+entradaModes.map(([valor,rotulo,regra,desabilitado])=>`<button type="button" data-entrada="${valor}" aria-pressed="false" title="${regra}"${desabilitado?' disabled':''}>${rotulo}</button>`).join('')+'</div>';
  function syncEntradaButtons(){
   entradaControls.querySelectorAll('button').forEach(button=>{button.setAttribute('aria-pressed',String(Boolean(state)&&button.dataset.entrada===entradaSelector.value));});
  }
@@ -116,6 +137,68 @@
  controls.addEventListener('click',event=>{const button=event.target.closest('[data-scenario]');if(button)choose(button.dataset.scenario);});
  selector.onchange=()=>choose(selector.value);
 
+ // Mesmas opcoes de Entrada e Vendas tambem ao lado do grafico (usuaria, 2026-10-19: "acho que fica mais
+ // intuitivo"). Sao copias dos botoes da tabela: chamam as mesmas funcoes e o destaque anda junto.
+ const opcoesGrafico=document.createElement('div');
+ opcoesGrafico.className='graf-opcoes';
+ // 2026-10-19 (usuaria): Entrada/Vendas sairam do grafico (ficam so' na tabela); so' o filtro de Status, ao lado.
+ opcoesGrafico.innerHTML=
+  // Filtro por Status da viagem (2026-10-19): marca 1 ou mais; "Todos" volta a regra normal.
+  `<div class="graf-grupo graf-status"><span>Status da viagem</span><div class="scenario-buttons" role="group" aria-label="Status da viagem nas entradas">`
+  +`<button type="button" data-status-todos aria-pressed="false">Todos</button>${STATUS_VIAGEM.map(([k,r])=>`<button type="button" data-status-viagem="${k}" aria-pressed="false">${r}</button>`).join('')}</div></div>`;
+ function syncStatusViagem(){
+  const ativo=filtroStatusAtivo(),cadencia=entradaSelector.value==='cadencia';
+  opcoesGrafico.querySelector('.graf-status').classList.toggle('graf-status-off',cadencia);
+  opcoesGrafico.querySelector('.graf-status').title=cadencia?'Em "Cadência MIS" não há carros: o filtro não se aplica.':'';
+  opcoesGrafico.querySelector('[data-status-todos]').setAttribute('aria-pressed',String(!ativo));
+  opcoesGrafico.querySelectorAll('[data-status-viagem]').forEach(b=>b.setAttribute('aria-pressed',String(ativo&&filtroStatusViagem.has(b.dataset.statusViagem))));
+  // So' os status que tem viagem no recorte, de hoje em diante (usuaria, 2026-10-28: "me mostre apenas os que
+  // aparecem"). "Todos" fica sempre.
+  const presentes=new Set();
+  if(record)for(const r of registrosReais())for(let i=0;i<n;i++){if(day(i)<today())continue;
+   for(const v of D.transitoAoVivo?.[r.bi?.emp_dep]?.[r.bi?.material]?.[day(i)]?.viagens||[])presentes.add(categoriaViagem(v));}
+  opcoesGrafico.querySelectorAll('[data-status-viagem]').forEach(b=>{b.hidden=!presentes.has(b.dataset.statusViagem);});
+ }
+ function chooseStatusViagem(chave){
+  if(!record){message('Escolha cidade, depósito e produto antes de filtrar o status da viagem.');return;}
+  if(chave===null)trocarFiltroStatus(STATUS_VIAGEM.map(([k])=>k));
+  else{
+   // Com "Todos" ativo, o 1o clique escolhe so' aquele status; depois cada clique liga/desliga.
+   const atual=filtroStatusAtivo()?new Set(filtroStatusViagem):new Set();
+   atual.has(chave)?atual.delete(chave):atual.add(chave);
+   trocarFiltroStatus(atual.size?[...atual]:STATUS_VIAGEM.map(([k])=>k));
+  }
+  persist();select();
+  // As linhas de transito sempre seguem o filtro (2026-10-19, "a tabela tem que obedecer ao filtro"): sem isto,
+  // um cenario salvo no navegador segurava os valores antigos de FOB/CIF/Transferencia (mergeSource).
+  for(const k of ['fob','cif','transferIn'])for(let i=0;i<n;i++)if(day(i)>=today())state.movements[k][i]=baseline.movements[k][i];
+  persist();render(true);syncStatusViagem();
+ }
+ opcoesGrafico.addEventListener('click',event=>{
+  const e=event.target.closest('[data-entrada]');if(e){chooseEntrada(e.dataset.entrada);return;}
+  const s=event.target.closest('[data-scenario]');if(s){choose(s.dataset.scenario);return;}
+  if(event.target.closest('[data-status-todos]')){chooseStatusViagem(null);return;}
+  const st=event.target.closest('[data-status-viagem]');if(st)chooseStatusViagem(st.dataset.statusViagem);
+ });
+ const painelGrafico=$('chart')?.closest('section');
+ $('chart')?.before(opcoesGrafico);
+ // Coloca o filtro no espaco vazio a esquerda do grafico (a mesma largura da coluna de rotulos da tabela,
+ // menos o eixo dos numeros). Sem espaco (tela estreita), fica em cima do grafico.
+ function posicionarOpcoesGrafico(){
+  const chart=$('chart'),rotulos=document.querySelector('#grid thead th.row-label');
+  if(!chart||!painelGrafico)return;
+  const caixa=chart.getBoundingClientRect(),livre=rotulos?rotulos.getBoundingClientRect().right-caixa.left-70:0;
+  const lado=livre>=150;
+  opcoesGrafico.classList.toggle('graf-lado',lado);
+  if(lado){painelGrafico.style.position='relative';opcoesGrafico.style.left=(caixa.left-painelGrafico.getBoundingClientRect().left)+'px';
+   opcoesGrafico.style.top=(caixa.top-painelGrafico.getBoundingClientRect().top+8)+'px';opcoesGrafico.style.width=livre+'px';}
+  else{opcoesGrafico.style.left=opcoesGrafico.style.top=opcoesGrafico.style.width='';}
+ }
+ window.addEventListener('resize',posicionarOpcoesGrafico);
+ const syncTabela=syncButtons,syncTabelaEntrada=syncEntradaButtons;
+ syncButtons=function(){syncTabela();opcoesGrafico.querySelectorAll('[data-scenario]').forEach(b=>b.setAttribute('aria-pressed',String(Boolean(state)&&b.dataset.scenario===state.scenario)));};
+ syncEntradaButtons=function(){syncTabelaEntrada();opcoesGrafico.querySelectorAll('[data-entrada]').forEach(b=>b.setAttribute('aria-pressed',String(Boolean(state)&&b.dataset.entrada===entradaSelector.value)));syncStatusViagem();requestAnimationFrame(posicionarOpcoesGrafico);};
+
  function conteudoPopupVendas(index){
   const loaded=record.bi?.days[day(index)];
   // semana.porDia vem da reprojecao (reprojecao_vmd.py): 'le' e' a meta ORIGINAL antes de reprojetar
@@ -136,11 +219,27 @@
   // deposito+empresa cada viagem e' — senao some tudo igual aconteceria no modo normal (1 emp_dep so').
   // viagensDoDia (app.js) ja' junta os registros do combinado e marca o destino de cada viagem.
   const viagens=viagensDoDia(index,modal);
-  if(!viagens.length)return `<strong>Trânsito ${modal.toUpperCase()} · ${dateLabel(day(index))}</strong><p>Sem detalhe de viagem ao vivo pra este dia.</p>`;
+  // Botao LE: transferencias no mesmo bloco das viagens (2026-10-21).
+  const transfJunto=modal==='fob'&&day(index)>=today()?transfEntradaContadas(index):[];
+  // Parte da cadencia MIS que esta' no FOB do dia (borda ambar no botao LE): aparece aqui tambem (usuaria,
+  // 2026-10-21: "pq ta pontilhado?" — o popup so' mostrava a viagem, nao a cadencia somada).
+  const cad=modal==='fob'?cadenciaAmbar(index):0;
+  const cadHtml=cad>0?`<p style="color:#FBBF24">+ ${fmt(cad)} m³ de cadência MIS do dia (planejamento, ainda sem viagem) · borda âmbar pontilhada</p>`:'';
   const realizadas=viagens.filter(v=>v.grupo!=='programado'),programadas=viagens.filter(v=>v.grupo==='programado');
+  const nReal=realizadas.length+transfJunto.length,volReal=realizadas.reduce((s,v)=>s+v.volume,0)+transfJunto.reduce((s,t)=>s+(t.volume||0),0);
+  // Conferencia (usuaria, 2026-10-27: "tem que ter as informacoes das viagens... se nao tiver, temos que mapear"):
+  // o que a celula soma alem das viagens/transferencias/cadencia listadas aparece em vermelho. Nao vale pra valor
+  // digitado nem pro botao Cadencia MIS (que nao vem de viagem).
+  const valor=state.movements[modal]?.[index]??0,volProg=programadas.reduce((s,v)=>s+v.volume,0);
+  let semViagem=valor-volReal-cad;
+  if(Math.abs(semViagem-volProg)<0.5)semViagem=0;   // nao programadas somadas ("Transito real + Nao programado"/LE)
+  const avisoSemViagem=day(index)>=today()&&semViagem>0.5&&valor===baseline.movements[modal]?.[index]&&$('entrada')?.value!=='cadencia'
+   ?`<p style="color:#F87171">⚠ ${fmt(semViagem)} m³ sem viagem identificada. Avise o administrador do simulador (base, produto e dia).</p>`:'';
+  if(!viagens.length&&!transfJunto.length)return `<strong>Trânsito ${modal.toUpperCase()} · ${dateLabel(day(index))}</strong>${cadHtml||(avisoSemViagem?'':'<p>Sem detalhe de viagem ao vivo pra este dia.</p>')}${avisoSemViagem}`;
   return `<strong>Trânsito ${modal.toUpperCase()} · ${dateLabel(day(index))}</strong>`
-   +(realizadas.length?`<dl class="viagens">${realizadas.map(linhaViagemHtml).join('')}</dl><p style="color:#60A5FA">${realizadas.length} viagem(ns) · total ${fmt(realizadas.reduce((s,v)=>s+v.volume,0))} m³</p>`:'')
-   +(programadas.length?`<dl class="viagens">${programadas.map(linhaViagemHtml).join('')}</dl><p style="color:#F97316">${programadas.length} não programada(s) · ${fmt(programadas.reduce((s,v)=>s+v.volume,0))} m³ · só soma com "Programado + Não programado"</p>`:'');
+   +(nReal?`<dl class="viagens">${realizadas.map(linhaViagemHtml).join('')}${transfJunto.map(t=>linhaTransfHtml(t,index)).join('')}</dl><p style="color:#60A5FA">${nReal} viagem(ns) · total ${fmt(volReal)} m³${transfJunto.length?` (inclui ${transfJunto.length} transferência(s))`:''}</p>`:'')
+   +(programadas.length?`<dl class="viagens">${programadas.map(linhaViagemHtml).join('')}</dl><p style="color:#F97316">${programadas.length} não programada(s) · ${fmt(programadas.reduce((s,v)=>s+v.volume,0))} m³ · só soma em "Trânsito real + Não programado" e "LE"</p>`:'')
+   +cadHtml+avisoSemViagem;
  }
  // Popup "de qual deposito/empresa vem essa abertura" no modo combinado — pedido da usuaria,
  // 2026-10-05: "na abertura, quando selecionar + de 1, eu preciso saber qual deposito e empresa".
@@ -151,6 +250,9 @@
  function avisoAtraso(dataAbertura){if(!dataAbertura||dataAbertura===D.date)return'';const dias=diasDesde(dataAbertura);return ` ⚠ há ${dias} dia${dias===1?'':'s'}`;}
  function conteudoPopupAbertura(){
   const combinados=record._registrosCombinados;
+  // Base unificada (2026-10-27): deposito compartilhado soma a abertura de cada empresa (atualizar_dados.unificar_registros).
+  const partes=record.componentes;
+  if(!combinados&&partes?.length)return `<strong>Estoque inicial · abertura · ${dateLabel(D.date)}</strong><dl>${partes.map(c=>`<div><dt>${esc(c.base)}</dt><dd>${fmt(c.opening)} m³ · ${dateLabel(c.aberturaEm||D.date)}${avisoAtraso(c.aberturaEm)}</dd></div>`).join('')}</dl><p>Depósito compartilhado: ${partes.length} empresa(s) somadas · total ${fmt(record.opening)} m³</p>`;
   if(!combinados)return `<strong>Estoque inicial · abertura</strong><p>${fmt(record.opening)} m³ · ${dateLabel(record.aberturaEm||D.date)}${avisoAtraso(record.aberturaEm)}</p>`;
   const linha=r=>`<div><dt>${esc(depositoDe(r))} · ${esc(empresaDe(r))}</dt><dd>${fmt(r.opening)} m³ · ${dateLabel(r.aberturaEm||D.date)}${avisoAtraso(r.aberturaEm)}</dd></div>`;
   return `<strong>Estoque inicial · abertura · ${dateLabel(D.date)}</strong><dl>${combinados.map(linha).join('')}</dl><p>${combinados.length} base(s) · total ${fmt(record.opening)} m³</p>`;
